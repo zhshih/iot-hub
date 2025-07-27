@@ -1,3 +1,4 @@
+use crate::auth::middleware::AuthUser;
 use axum::{
     Router,
     extract::Path,
@@ -10,10 +11,10 @@ pub fn routes() -> Router {
         .route("/{id}", get(get_reading))
 }
 
-async fn post_reading(Path(id): Path<String>) -> String {
-    format!("Posted post_reading {}", id)
+async fn post_reading(Path(id): Path<String>, AuthUser(user): AuthUser) -> String {
+    format!("Posted post_reading {} for user {}", id, user.sub)
 }
 
-async fn get_reading(Path(id): Path<String>) -> String {
-    format!("Got reading {}", id)
+async fn get_reading(Path(id): Path<String>, AuthUser(user): AuthUser) -> String {
+    format!("Got reading {} for user {}", id, user.sub)
 }

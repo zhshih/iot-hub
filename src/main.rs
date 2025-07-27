@@ -1,11 +1,17 @@
 mod api;
+mod auth;
 
 use axum::Router;
+use dotenvy::dotenv;
+use std::env;
 use std::net::SocketAddr;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+
+    dotenv().ok();
+    let _ = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
 
     let app = Router::new()
         .nest("/devices", api::devices::routes())
