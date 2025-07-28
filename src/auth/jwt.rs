@@ -4,20 +4,20 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, deco
 use serde::{Deserialize, Serialize};
 use std::env;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Claims {
     pub exp: usize,
     pub iat: usize,
     pub sub: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct AuthRequest {
     pub username: String,
     pub password: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AuthResponse {
     pub token: String,
 }

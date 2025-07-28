@@ -49,3 +49,81 @@ async fn me(AuthUser(user): AuthUser) -> String {
         user.sub, user.iat, user.exp
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::{jwt::Claims, middleware::AuthUser};
+    use axum::Json;
+    use axum::http::StatusCode;
+
+    fn setup_env() {
+        unsafe {
+            std::env::set_var("JWT_SECRET", "test_secret");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_signup() {
+        setup_env();
+        let result = signup().await;
+        assert_eq!(result, "User signed up");
+    }
+
+    #[tokio::test]
+    async fn test_login_success() {
+        setup_env();
+        let payload = AuthRequest {
+            username: "admin".to_string(),
+            password: "password".to_string(),
+        };
+        let result = login(Json(payload)).await;
+
+        assert!(result.is_ok());
+        let json = result.unwrap();
+        assert!(!json.token.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_login_fail_empty() {
+        setup_env();
+        let payload = AuthRequest {
+            username: "".to_string(),
+            password: "".to_string(),
+        };
+        let result = login(Json(payload)).await;
+
+        assert!(result.is_err());
+        let (status, msg) = result.unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(msg, "Username and password are required");
+    }
+
+    #[tokio::test]
+    async fn test_login_fail_invalid() {
+        setup_env();
+        let payload = AuthRequest {
+            username: "user".to_string(),
+            password: "wrong".to_string(),
+        };
+        let result = login(Json(payload)).await;
+
+        assert!(result.is_err());
+        let (status, msg) = result.unwrap_err();
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert_eq!(msg, "Invalid credentials");
+    }
+
+    #[tokio::test]
+    async fn test_me() {
+        setup_env();
+        let claims = Claims {
+            sub: "admin".to_string(),
+            iat: 123,
+            exp: 456,
+        };
+        let user = AuthUser(claims);
+        let result = me(user).await;
+        assert_eq!(result, "current user: admin, issue at 123, expired at 456");
+    }
+}
