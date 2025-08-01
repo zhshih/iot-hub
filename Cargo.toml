@@ -25,9 +25,13 @@ sqlx = { version = "0.8.6", features = [
     "chrono",
     "migrate",
 ] }
+uuid = { version = "1.17.0", features = ["v4", "serde"] }
+argon2 = "0.5.3"
+password-hash = "0.5.0"
 
 [dev-dependencies]
 tokio = { version = "1.46.1", features = ["full"] }
+rand = "0.8"
 
 [[bin]]
 name = "iot_monitoring_platform"

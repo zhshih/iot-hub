@@ -1,9 +1,13 @@
 mod api;
+mod app_state;
 mod auth;
+mod domain;
 
-use axum::{Extension, Router};
+use crate::app_state::AppState;
+use axum::Router;
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
+use std::sync::Arc;
 use std::{env, net::SocketAddr};
 
 #[tokio::main]
@@ -21,11 +25,15 @@ async fn main() {
         .await
         .expect("Failed to connect to the database");
 
+    let app_state = AppState {
+        db_pool: Arc::new(pool),
+    };
+
     let app = Router::new()
-        .nest("/devices", api::devices::routes())
-        .nest("/readings", api::readings::routes())
+        // .nest("/devices", api::devices::routes())
+        // .nest("/readings", api::readings::routes())
         .nest("/users", api::users::routes())
-        .layer(Extension(pool.clone()));
+        .with_state(app_state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();

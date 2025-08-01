@@ -30,11 +30,6 @@ where
             .map_err(|_err| (StatusCode::UNAUTHORIZED, "Invalid or expired token"))?
             .claims;
 
-        // FIXME
-        if claims.sub != "admin" {
-            return Err((StatusCode::FORBIDDEN, "User not allowed"));
-        }
-
         Ok(AuthUser(claims))
     }
 }
