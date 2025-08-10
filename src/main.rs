@@ -2,12 +2,12 @@ mod api;
 mod app_state;
 mod auth;
 mod domain;
+mod service;
 
 use crate::app_state::AppState;
 use axum::Router;
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
-use std::sync::Arc;
 use std::{env, net::SocketAddr};
 
 #[tokio::main]
@@ -25,9 +25,7 @@ async fn main() {
         .await
         .expect("Failed to connect to the database");
 
-    let app_state = AppState {
-        db_pool: Arc::new(pool),
-    };
+    let app_state = AppState { db_pool: pool };
 
     let app = Router::new()
         // .nest("/devices", api::devices::routes())
