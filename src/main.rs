@@ -2,6 +2,7 @@ mod api;
 mod app_state;
 mod auth;
 mod domain;
+mod repository;
 mod service;
 
 use crate::app_state::AppState;

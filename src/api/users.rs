@@ -79,23 +79,12 @@ async fn list_users(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::{jwt::Claims, middleware::AuthUser};
     use argon2::{Argon2, PasswordHasher};
-    use axum::{
-        body::{Body, to_bytes},
-        http::{Request, StatusCode},
-        response::Response,
-    };
     use password_hash::{SaltString, rand_core::OsRng};
-    use serde_json::{Value, json};
-    use sqlx::{Executor, PgPool};
-    use tower::util::ServiceExt;
+    use serial_test::serial;
+    use sqlx::PgPool;
     use uuid::Uuid;
-
-    async fn setup_app() -> (Router, PgPool) {
-        let state = setup_test_state().await;
-        let app = routes().with_state(state.clone());
-        (app, state.db_pool)
-    }
 
     fn setup_env() {
         unsafe {
@@ -110,51 +99,25 @@ mod tests {
             .await
             .expect("DB connect failed");
 
-        pool.execute("TRUNCATE TABLE users CASCADE")
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("Failed to run migrations");
+
+        sqlx::query("TRUNCATE TABLE users CASCADE")
+            .execute(&pool)
             .await
             .expect("Failed to truncate");
 
         AppState { db_pool: pool }
     }
 
-    async fn do_login(pool: &PgPool, username: &str, password: &str) -> String {
-        let app = routes().with_state(AppState {
-            db_pool: pool.clone(),
-        });
-        let payload = json!({ "username": username, "password": password });
-        let resp = post_json(app, "/login", payload).await;
-        let json: Value = resp_json(resp).await;
-        json["token"].as_str().unwrap().to_string()
-    }
-
-    async fn post_json(app: Router, uri: &str, payload: Value) -> Response {
-        let req = Request::builder()
-            .uri(uri)
-            .method("POST")
-            .header("content-type", "application/json")
-            .body(Body::from(payload.to_string()))
-            .unwrap();
-        app.oneshot(req).await.unwrap()
-    }
-
-    async fn get_with_auth(app: Router, uri: &str, token: &str) -> Response {
-        let req = Request::builder()
-            .uri(uri)
-            .method("GET")
-            .header("Authorization", format!("Bearer {}", token))
-            .body(Body::empty())
-            .unwrap();
-        app.oneshot(req).await.unwrap()
-    }
-
-    async fn resp_json<T: serde::de::DeserializeOwned>(resp: Response) -> T {
-        let body = to_bytes(resp.into_body(), 1024 * 16).await.unwrap();
-        serde_json::from_slice(&body).unwrap()
-    }
-
-    async fn resp_text(resp: Response) -> String {
-        let body = to_bytes(resp.into_body(), 1024 * 16).await.unwrap();
-        String::from_utf8(body.to_vec()).unwrap()
+    fn mock_auth_user(sub: &str) -> AuthUser {
+        AuthUser(Claims {
+            sub: sub.to_string(),
+            exp: 0,
+            iat: 0,
+        })
     }
 
     async fn insert_test_user(
@@ -188,27 +151,29 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_signup() {
-        let (app, _) = setup_app().await;
-        let payload = json!({
-            "username": "newuser",
-            "email": "newuser@example.com",
-            "password": "password123"
-        });
+        let state = setup_test_state().await;
 
-        let resp = post_json(app, "/signup", payload).await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        let payload = SignupRequest {
+            username: "newuser".into(),
+            email: "newuser@example.com".into(),
+            password: "password123".into(),
+        };
 
-        let json: Value = resp_json(resp).await;
-        assert_eq!(json["message"], "User created successfully");
-        assert!(json.get("token").is_some());
+        let resp = signup(State(state), Json(payload)).await.unwrap();
+
+        assert_eq!(resp.0["message"], "User created successfully");
+        assert!(resp.0.get("token").is_some());
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_login() {
-        let (app, pool) = setup_app().await;
+        let state = setup_test_state().await;
+
         insert_test_user(
-            &pool,
+            &state.db_pool,
             "loginuser",
             "login@example.com",
             "password123",
@@ -216,58 +181,53 @@ mod tests {
         )
         .await;
 
-        let payload = json!({
-            "username": "loginuser",
-            "password": "password123"
-        });
-        let resp = post_json(app, "/login", payload).await;
+        let payload = AuthRequest {
+            username: "loginuser".into(),
+            password: "password123".into(),
+        };
 
-        assert_eq!(resp.status(), StatusCode::OK);
-        let json: Value = resp_json(resp).await;
-        assert!(json.get("token").is_some());
+        let resp = login(State(state), Json(payload)).await.unwrap();
+
+        assert!(!resp.token.is_empty());
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_me() {
-        let (app, pool) = setup_app().await;
+        let state = setup_test_state().await;
+
         insert_test_user(
-            &pool,
+            &state.db_pool,
             "meuser",
             "meuser@example.com",
             "password123",
             "Operator",
         )
         .await;
-        let token = do_login(&pool, "meuser", "password123").await;
 
-        let resp = get_with_auth(app, "/me", &token).await;
-        assert_eq!(resp.status(), StatusCode::OK);
+        let user = mock_auth_user("meuser");
 
-        let body = resp_text(resp).await;
-        assert!(body.contains("meuser@example.com"));
+        let resp = me(AuthUser(user.0), State(state)).await.unwrap();
+
+        assert!(resp.contains("meuser@example.com"));
     }
 
     #[tokio::test]
     async fn test_health_check() {
-        let (app, _) = setup_app().await;
+        let state = setup_test_state().await;
 
-        let req = Request::builder()
-            .uri("/health")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        let resp = app.oneshot(req).await.unwrap();
+        let resp = health_check(State(state)).await.unwrap();
 
-        assert_eq!(resp.status(), StatusCode::OK);
-        let body = resp_text(resp).await;
-        assert!(body.contains("DB says"));
+        assert!(resp.contains("DB says"));
     }
 
     #[tokio::test]
+    #[serial]
     async fn test_list_users() {
-        let (app, pool) = setup_app().await;
+        let state = setup_test_state().await;
+
         insert_test_user(
-            &pool,
+            &state.db_pool,
             "adminuser",
             "admin@example.com",
             "adminpass",
@@ -275,7 +235,7 @@ mod tests {
         )
         .await;
         insert_test_user(
-            &pool,
+            &state.db_pool,
             "regularuser",
             "user@example.com",
             "userpass",
@@ -283,11 +243,11 @@ mod tests {
         )
         .await;
 
-        let token = do_login(&pool, "adminuser", "adminpass").await;
-        let resp = get_with_auth(app, "/", &token).await;
+        let admin_user = mock_auth_user("adminuser");
+        let users = list_users(AuthUser(admin_user.0), State(state))
+            .await
+            .unwrap();
 
-        assert_eq!(resp.status(), StatusCode::OK);
-        let users: Vec<User> = resp_json(resp).await;
         assert!(users.iter().any(|u| u.username == "adminuser"));
         assert!(users.iter().any(|u| u.username == "regularuser"));
     }
