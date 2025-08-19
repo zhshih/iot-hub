@@ -11,3 +11,11 @@ pub struct Device {
     pub registered_at: DateTime<Utc>,
     pub is_active: bool,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct RegisteredDevice {
+    pub name: String,
+    pub description: Option<String>,
+    pub owner_id: Uuid,
+    pub registered_at: DateTime<Utc>,
+}

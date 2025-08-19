@@ -79,46 +79,21 @@ async fn list_users(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::{jwt::Claims, middleware::AuthUser};
+    use crate::auth::middleware::AuthUser;
+    use crate::test_utils::{mock_auth_user, setup_test_state};
     use argon2::{Argon2, PasswordHasher};
     use password_hash::{SaltString, rand_core::OsRng};
     use serial_test::serial;
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    fn setup_env() {
-        unsafe {
-            std::env::set_var("JWT_SECRET", "test_secret");
-        }
-    }
-
-    async fn setup_test_state() -> AppState {
-        setup_env();
-        let database_url = "postgres://test_user:test_password@localhost/iot_monitoring_test";
-        let pool = PgPool::connect(database_url)
-            .await
-            .expect("DB connect failed");
-
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .expect("Failed to run migrations");
-
-        sqlx::query("TRUNCATE TABLE users CASCADE")
-            .execute(&pool)
-            .await
-            .expect("Failed to truncate");
-
-        AppState { db_pool: pool }
-    }
-
-    fn mock_auth_user(sub: &str) -> AuthUser {
-        AuthUser(Claims {
-            sub: sub.to_string(),
-            exp: 0,
-            iat: 0,
-        })
-    }
+    const USERS_TABLE: &str = "users";
+    const DUMMY_LOGIN_USER: &str = "loginuser";
+    const DUMMY_PASSWORD: &str = "password123";
+    const DUMMY_ROLE: &str = "Operator";
+    const DUMMY_ME_USER: &str = "meuser";
+    const DUMMY_ADIMIN_USER: &str = "adminuser";
+    const DUMMY_REGULAR_USER: &str = "regularuser";
 
     async fn insert_test_user(
         pool: &PgPool,
@@ -153,12 +128,12 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_signup() {
-        let state = setup_test_state().await;
+        let state = setup_test_state(USERS_TABLE).await;
 
         let payload = SignupRequest {
             username: "newuser".into(),
             email: "newuser@example.com".into(),
-            password: "password123".into(),
+            password: DUMMY_PASSWORD.into(),
         };
 
         let resp = signup(State(state), Json(payload)).await.unwrap();
@@ -170,20 +145,20 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_login() {
-        let state = setup_test_state().await;
+        let state = setup_test_state(USERS_TABLE).await;
 
         insert_test_user(
             &state.db_pool,
-            "loginuser",
+            DUMMY_LOGIN_USER,
             "login@example.com",
-            "password123",
-            "Operator",
+            DUMMY_PASSWORD,
+            DUMMY_ROLE,
         )
         .await;
 
         let payload = AuthRequest {
-            username: "loginuser".into(),
-            password: "password123".into(),
+            username: DUMMY_LOGIN_USER.into(),
+            password: DUMMY_PASSWORD.into(),
         };
 
         let resp = login(State(state), Json(payload)).await.unwrap();
@@ -194,18 +169,18 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_me() {
-        let state = setup_test_state().await;
+        let state = setup_test_state(USERS_TABLE).await;
 
         insert_test_user(
             &state.db_pool,
-            "meuser",
+            DUMMY_ME_USER,
             "meuser@example.com",
-            "password123",
-            "Operator",
+            DUMMY_PASSWORD,
+            DUMMY_ROLE,
         )
         .await;
 
-        let user = mock_auth_user("meuser");
+        let user = mock_auth_user(DUMMY_ME_USER);
 
         let resp = me(AuthUser(user.0), State(state)).await.unwrap();
 
@@ -214,7 +189,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_health_check() {
-        let state = setup_test_state().await;
+        let state = setup_test_state(USERS_TABLE).await;
 
         let resp = health_check(State(state)).await.unwrap();
 
@@ -224,11 +199,11 @@ mod tests {
     #[tokio::test]
     #[serial]
     async fn test_list_users() {
-        let state = setup_test_state().await;
+        let state = setup_test_state(USERS_TABLE).await;
 
         insert_test_user(
             &state.db_pool,
-            "adminuser",
+            DUMMY_ADIMIN_USER,
             "admin@example.com",
             "adminpass",
             "Admin",
@@ -236,19 +211,19 @@ mod tests {
         .await;
         insert_test_user(
             &state.db_pool,
-            "regularuser",
+            DUMMY_REGULAR_USER,
             "user@example.com",
             "userpass",
-            "Operator",
+            DUMMY_ROLE,
         )
         .await;
 
-        let admin_user = mock_auth_user("adminuser");
+        let admin_user = mock_auth_user(DUMMY_ADIMIN_USER);
         let users = list_users(AuthUser(admin_user.0), State(state))
             .await
             .unwrap();
 
-        assert!(users.iter().any(|u| u.username == "adminuser"));
-        assert!(users.iter().any(|u| u.username == "regularuser"));
+        assert!(users.iter().any(|u| u.username == DUMMY_ADIMIN_USER));
+        assert!(users.iter().any(|u| u.username == DUMMY_REGULAR_USER));
     }
 }

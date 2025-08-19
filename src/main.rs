@@ -4,6 +4,8 @@ mod auth;
 mod domain;
 mod repository;
 mod service;
+#[cfg(test)]
+mod test_utils;
 
 use crate::app_state::AppState;
 use axum::Router;
@@ -29,7 +31,7 @@ async fn main() {
     let app_state = AppState { db_pool: pool };
 
     let app = Router::new()
-        // .nest("/devices", api::devices::routes())
+        .nest("/devices", api::devices::routes())
         // .nest("/readings", api::readings::routes())
         .nest("/users", api::users::routes())
         .with_state(app_state);
