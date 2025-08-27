@@ -6,6 +6,7 @@ use axum::{
 use axum_extra::TypedHeader;
 use headers::{Authorization, authorization::Bearer};
 
+#[derive(Clone)]
 pub struct AuthUser(pub Claims);
 
 impl<S> FromRequestParts<S> for AuthUser

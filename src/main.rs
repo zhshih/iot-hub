@@ -32,7 +32,7 @@ async fn main() {
 
     let app = Router::new()
         .nest("/devices", api::devices::routes())
-        // .nest("/readings", api::readings::routes())
+        .nest("/readings", api::readings::routes())
         .nest("/users", api::users::routes())
         .with_state(app_state);
 
