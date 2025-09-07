@@ -1,6 +1,6 @@
 use crate::{
-    api::error::ApiError,
     domain::device::{Device, RegisteredDevice},
+    error::AppError,
     repository::device_repo::DeviceRepository,
 };
 use uuid::Uuid;
@@ -14,9 +14,9 @@ impl<R: DeviceRepository> DeviceService<R> {
         Self { repo }
     }
 
-    pub async fn register_device(&self, payload: RegisteredDevice) -> Result<String, ApiError> {
+    pub async fn register_device(&self, payload: RegisteredDevice) -> Result<String, AppError> {
         if payload.name.is_empty() || payload.owner_id == Uuid::nil() {
-            return Err(ApiError::BadRequest(
+            return Err(AppError::MissingArgument(
                 "Device name and owner ID are required".to_string(),
             ));
         }
@@ -36,30 +36,34 @@ impl<R: DeviceRepository> DeviceService<R> {
         Ok(id.to_string())
     }
 
-    pub async fn get_device(&self, id: Uuid) -> Result<Device, ApiError> {
+    pub async fn get_device(&self, id: Uuid) -> Result<Device, AppError> {
         let device = self
             .repo
             .find_device_by_id(id)
             .await?
-            .ok_or(ApiError::NotFound("Device not found".to_string()))?;
+            .ok_or(AppError::NotFound("Device not found".to_string()))?;
 
         Ok(device)
     }
 
-    pub async fn get_devices(&self) -> Result<Vec<Device>, ApiError> {
+    pub async fn get_devices(&self) -> Result<Vec<Device>, AppError> {
         let devices = self.repo.list_all_device().await?;
         if devices.is_empty() {
-            return Err(ApiError::NotFound("Devices not found".to_string()));
+            return Err(AppError::NotFound("Devices not found".to_string()));
         }
 
         Ok(devices)
     }
 
-    pub async fn delete_device(&self, id: Uuid) -> Result<(), ApiError> {
+    pub async fn delete_device(&self, id: Uuid) -> Result<(), AppError> {
         let affected = self.repo.delete_device_by_id(id).await?;
         if affected == 0 {
-            return Err(ApiError::NotFound("Device not found".into()));
+            return Err(AppError::NotFound(format!(
+                "Device with id {} not found",
+                id
+            )));
         }
+
         Ok(())
     }
 }
@@ -67,10 +71,7 @@ impl<R: DeviceRepository> DeviceService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        api::error::ApiError,
-        domain::device::{Device, RegisteredDevice},
-    };
+    use crate::domain::device::{Device, RegisteredDevice};
     use async_trait::async_trait;
     use mockall::mock;
     use uuid::Uuid;
@@ -80,10 +81,10 @@ mod tests {
 
         #[async_trait]
         impl DeviceRepository for DeviceRepository {
-            async fn insert_device(&self, device: &Device) -> Result<(), ApiError>;
-            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, ApiError>;
-            async fn list_all_device(&self) -> Result<Vec<Device>, ApiError>;
-            async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, ApiError>;
+            async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
+            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+            async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
+            async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError>;
         }
     }
 
@@ -123,7 +124,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_device_bad_request() {
+    async fn test_register_device_missing_argument_error() {
         let mock_repo = MockDeviceRepository::new();
         let service = DeviceService::new(mock_repo);
 
@@ -135,7 +136,7 @@ mod tests {
         };
 
         let result = service.register_device(bad_payload).await;
-        assert!(matches!(result, Err(ApiError::BadRequest(_))));
+        assert!(matches!(result, Err(AppError::MissingArgument(_))));
     }
 
     #[tokio::test]
@@ -171,7 +172,7 @@ mod tests {
         let service = DeviceService::new(mock_repo);
         let result = service.get_device(Uuid::new_v4()).await;
 
-        assert!(matches!(result, Err(ApiError::NotFound(_))));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
     #[tokio::test]
@@ -198,7 +199,7 @@ mod tests {
         let service = DeviceService::new(mock_repo);
         let result = service.get_devices().await;
 
-        assert!(matches!(result, Err(ApiError::NotFound(_))));
+        assert!(matches!(result, Err(AppError::NotFound(_))));
     }
 
     #[tokio::test]
@@ -220,6 +221,11 @@ mod tests {
         let service = DeviceService::new(mock_repo);
         let result = service.delete_device(Uuid::new_v4()).await;
 
-        assert!(matches!(result, Err(ApiError::NotFound(_))));
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("Device with id"));
+            }
+            _ => panic!("Expected AppError::NotFound, got {:?}", result),
+        }
     }
 }

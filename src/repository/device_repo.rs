@@ -1,18 +1,18 @@
-use crate::{api::error::ApiError, domain::device::Device};
+use crate::{domain::device::Device, error::AppError};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait DeviceRepository: Send + Sync {
-    async fn insert_device(&self, device: &Device) -> Result<(), ApiError>;
-    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, ApiError>;
-    async fn list_all_device(&self) -> Result<Vec<Device>, ApiError>;
-    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, ApiError>;
+    async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
+    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+    async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
+    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError>;
 }
 
 #[async_trait::async_trait]
 impl DeviceRepository for PgPool {
-    async fn insert_device(&self, device: &Device) -> Result<(), ApiError> {
+    async fn insert_device(&self, device: &Device) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             INSERT INTO devices (id, name, description, owner_id, registered_at, is_active)
@@ -27,12 +27,12 @@ impl DeviceRepository for PgPool {
         )
         .execute(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to insert device: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to insert device: {}", e)))?;
 
         Ok(())
     }
 
-    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, ApiError> {
+    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError> {
         let device = sqlx::query_as!(
             Device,
             r#"
@@ -44,12 +44,12 @@ impl DeviceRepository for PgPool {
         )
         .fetch_optional(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to fetch device: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch device: {}", e)))?;
 
         Ok(device)
     }
 
-    async fn list_all_device(&self) -> Result<Vec<Device>, ApiError> {
+    async fn list_all_device(&self) -> Result<Vec<Device>, AppError> {
         let devices = sqlx::query_as!(
             Device,
             r#"
@@ -60,12 +60,12 @@ impl DeviceRepository for PgPool {
         )
         .fetch_all(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to fetch devices: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch devices: {}", e)))?;
 
         Ok(devices)
     }
 
-    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, ApiError> {
+    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError> {
         let result = sqlx::query!(
             r#"
             DELETE FROM devices
@@ -75,7 +75,7 @@ impl DeviceRepository for PgPool {
         )
         .execute(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to delete device: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to delete device: {}", e)))?;
 
         Ok(result.rows_affected())
     }
@@ -94,10 +94,10 @@ mod tests {
 
         #[async_trait]
         impl DeviceRepository for DeviceRepository {
-            async fn insert_device(&self, device: &Device) -> Result<(), ApiError>;
-            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, ApiError>;
-            async fn list_all_device(&self) -> Result<Vec<Device>, ApiError>;
-            async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, ApiError>;
+            async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
+            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+            async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
+            async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError>;
         }
     }
 

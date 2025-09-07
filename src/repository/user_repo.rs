@@ -1,20 +1,20 @@
 use crate::{
-    api::error::ApiError,
     domain::user::{User, UserRole},
+    error::AppError,
 };
 use sqlx::PgPool;
 
 #[async_trait::async_trait]
 pub trait UserRepository: Send + Sync {
-    async fn insert_user(&self, user: &User) -> Result<(), ApiError>;
-    async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError>;
-    async fn list_all_users(&self) -> Result<Vec<User>, ApiError>;
-    async fn health_check(&self) -> Result<i32, ApiError>;
+    async fn insert_user(&self, user: &User) -> Result<(), AppError>;
+    async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+    async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
+    async fn health_check(&self) -> Result<bool, AppError>;
 }
 
 #[async_trait::async_trait]
 impl UserRepository for PgPool {
-    async fn insert_user(&self, user: &User) -> Result<(), ApiError> {
+    async fn insert_user(&self, user: &User) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             INSERT INTO users (id, username, email, hashed_password, role, created_at)
@@ -29,41 +29,41 @@ impl UserRepository for PgPool {
         )
         .execute(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to create user: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to create user: {}", e)))?;
 
         Ok(())
     }
 
-    async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError> {
+    async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
             .bind(username)
             .fetch_optional(self)
             .await
-            .map_err(|_| ApiError::InternalServerError("DB error".to_string()))
+            .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
     }
 
-    async fn list_all_users(&self) -> Result<Vec<User>, ApiError> {
+    async fn list_all_users(&self) -> Result<Vec<User>, AppError> {
         sqlx::query_as::<_, User>("SELECT * FROM users")
             .fetch_all(self)
             .await
-            .map_err(|e| ApiError::InternalServerError(format!("Failed to fetch users: {}", e)))
+            .map_err(|e| AppError::DatabaseError(format!("Failed to fetch users: {}", e)))
     }
 
-    async fn health_check(&self) -> Result<i32, ApiError> {
+    async fn health_check(&self) -> Result<bool, AppError> {
         let row: (i32,) = sqlx::query_as("SELECT 1")
             .fetch_one(self)
             .await
-            .map_err(|e| ApiError::InternalServerError(format!("DB error: {}", e)))?;
+            .map_err(|e| AppError::DatabaseError(format!("DB error: {}", e)))?;
 
-        Ok(row.0)
+        Ok(row.0 == 1)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::user::User;
     use crate::domain::user::UserRole;
-    use crate::{api::error::ApiError, domain::user::User};
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
@@ -74,10 +74,10 @@ mod tests {
 
         #[async_trait]
         impl UserRepository for UserRepository {
-            async fn insert_user(&self, user: &User) -> Result<(), ApiError>;
-            async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError>;
-            async fn list_all_users(&self) -> Result<Vec<User>, ApiError>;
-            async fn health_check(&self) -> Result<i32, ApiError>;
+            async fn insert_user(&self, user: &User) -> Result<(), AppError>;
+            async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+            async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
+            async fn health_check(&self) -> Result<bool, AppError>;
         }
     }
 
@@ -133,10 +133,10 @@ mod tests {
     #[tokio::test]
     async fn test_health_check_returns_one() {
         let mut mock_repo = MockUserRepository::new();
-        mock_repo.expect_health_check().returning(|| Ok(1));
+        mock_repo.expect_health_check().returning(|| Ok(true));
 
         let result = mock_repo.health_check().await.unwrap();
-        assert_eq!(result, 1);
+        assert!(result);
     }
 
     #[tokio::test]
@@ -154,10 +154,10 @@ mod tests {
         let mut mock_repo = MockUserRepository::new();
         mock_repo
             .expect_insert_user()
-            .returning(|_| Err(ApiError::InternalServerError("duplicate".into())));
+            .returning(|_| Err(AppError::DatabaseError("duplicate".into())));
 
         let user = make_test_user("duplicate");
         let result = mock_repo.insert_user(&user).await;
-        assert!(matches!(result, Err(ApiError::InternalServerError(_))));
+        assert!(matches!(result, Err(AppError::DatabaseError(_))));
     }
 }

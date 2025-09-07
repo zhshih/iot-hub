@@ -1,0 +1,103 @@
+use axum::{
+    Router,
+    body::Body,
+    http::{Request, StatusCode},
+};
+use iot_hub::app_state::AppState;
+use serde::Serialize;
+use serde_json::Value;
+use sqlx::{self, Executor, PgPool};
+use tower::ServiceExt;
+
+const TEST_DATABASE_URL: &str = "postgres://test_user:test_password@localhost/iot_monitoring_test";
+pub struct TestApp {
+    pub app: Router,
+}
+
+pub fn setup_env() {
+    unsafe {
+        std::env::set_var("JWT_SECRET", "test_secret");
+    }
+}
+
+pub async fn setup_test_state(table: &str) -> AppState {
+    setup_env();
+
+    let database_url = TEST_DATABASE_URL;
+
+    let pool = PgPool::connect(database_url)
+        .await
+        .expect("failed to connect to test database");
+
+    sqlx::migrate!("./migrations")
+        .run(&pool)
+        .await
+        .expect("failed to run migrations");
+
+    let query = format!("TRUNCATE TABLE {} CASCADE", table);
+    pool.execute(query.as_str())
+        .await
+        .expect("failed to truncate table in setup");
+
+    AppState { db_pool: pool }
+}
+
+pub async fn cleanup_test_state(table: &str) {
+    setup_env();
+
+    let database_url = TEST_DATABASE_URL;
+
+    let pool = sqlx::PgPool::connect(&std::env::var(database_url).unwrap())
+        .await
+        .expect("failed to connect for cleanup");
+
+    let query = format!("TRUNCATE TABLE {} CASCADE", table);
+    pool.execute(query.as_str())
+        .await
+        .expect("failed to cleanup test state");
+}
+
+pub async fn send_request<T: Serialize>(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    payload: Option<T>,
+) -> (StatusCode, String) {
+    let mut req = Request::builder().method(method).uri(uri);
+
+    let body = if let Some(data) = payload {
+        req = req.header("content-type", "application/json");
+        Body::from(serde_json::to_string(&data).unwrap())
+    } else {
+        Body::empty()
+    };
+
+    let req = req.body(body).unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+    (status, body)
+}
+
+pub async fn send_json<T: Serialize>(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    payload: Option<T>,
+) -> (StatusCode, Value) {
+    let (status, body) = send_request(app, method, uri, payload).await;
+    match serde_json::from_str(&body) {
+        Ok(json) => (status, json),
+        Err(_) => {
+            panic!(
+                "Response was not valid JSON. Status: {:?}, Body: {}",
+                status, body
+            );
+        }
+    }
+}

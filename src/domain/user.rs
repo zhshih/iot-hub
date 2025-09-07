@@ -19,6 +19,7 @@ pub struct User {
 pub enum UserRole {
     Admin,
     Operator,
+    User,
 }
 
 impl fmt::Display for UserRole {
@@ -26,6 +27,7 @@ impl fmt::Display for UserRole {
         match self {
             UserRole::Admin => write!(f, "Admin"),
             UserRole::Operator => write!(f, "Operator"),
+            UserRole::User => write!(f, "User"),
         }
     }
 }
@@ -35,4 +37,25 @@ pub struct SignupRequest {
     pub username: String,
     pub email: String,
     pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PublicUser {
+    pub id: Uuid,
+    pub username: String,
+    pub email: String,
+    pub role: UserRole,
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<User> for PublicUser {
+    fn from(user: User) -> Self {
+        Self {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            created_at: user.created_at,
+        }
+    }
 }

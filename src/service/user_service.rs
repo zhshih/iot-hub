@@ -1,7 +1,7 @@
 use crate::{
-    api::error::ApiError,
     auth::jwt::{self, AuthRequest, Claims},
-    domain::user::{SignupRequest, User, UserRole},
+    domain::user::{PublicUser, SignupRequest, User, UserRole},
+    error::{AppError, TokenError, ValidationError},
     repository::user_repo::UserRepository,
 };
 
@@ -19,9 +19,9 @@ impl<R: UserRepository> UserService<R> {
         Self { repo }
     }
 
-    pub async fn signup(&self, payload: SignupRequest) -> Result<String, ApiError> {
+    pub async fn signup(&self, payload: SignupRequest) -> Result<String, AppError> {
         if payload.username.is_empty() || payload.password.is_empty() || payload.email.is_empty() {
-            return Err(ApiError::BadRequest(
+            return Err(AppError::MissingArgument(
                 "Username, email, and password are required".to_string(),
             ));
         }
@@ -29,7 +29,11 @@ impl<R: UserRepository> UserService<R> {
         let salt = SaltString::generate(&mut OsRng);
         let hashed_password = Argon2::default()
             .hash_password(payload.password.as_bytes(), &salt)
-            .map_err(|_| ApiError::InternalServerError("Password hashing failed".to_string()))?
+            .map_err(|_| {
+                AppError::ValidationError(ValidationError::ParsedError(
+                    "Password hashing failed".to_string(),
+                ))
+            })?
             .to_string();
 
         let user = User {
@@ -43,15 +47,18 @@ impl<R: UserRepository> UserService<R> {
 
         self.repo.insert_user(&user).await?;
 
-        let token = jwt::encode_jwt(payload.username)
-            .map_err(|_| ApiError::InternalServerError("Failed to generate token".to_string()))?;
+        let token = jwt::encode_jwt(payload.username).map_err(|_| {
+            AppError::TokenError(TokenError::GenerationFailed(
+                "Failed to generate token".to_string(),
+            ))
+        })?;
 
         Ok(token)
     }
 
-    pub async fn login(&self, payload: AuthRequest) -> Result<String, ApiError> {
+    pub async fn login(&self, payload: AuthRequest) -> Result<String, AppError> {
         if payload.username.is_empty() || payload.password.is_empty() {
-            return Err(ApiError::BadRequest(
+            return Err(AppError::MissingArgument(
                 "Username and password are required".to_string(),
             ));
         }
@@ -60,67 +67,73 @@ impl<R: UserRepository> UserService<R> {
             .repo
             .find_user_by_username(&payload.username)
             .await?
-            .ok_or(ApiError::Unauthorized(
+            .ok_or(AppError::ValidationError(ValidationError::InvalidInput(
                 "Invalid username or password".into(),
-            ))?;
+            )))?;
 
-        let parsed_hash = PasswordHash::new(&user.hashed_password)
-            .map_err(|_| ApiError::InternalServerError("Invalid hash format".into()))?;
+        let parsed_hash = PasswordHash::new(&user.hashed_password).map_err(|_| {
+            AppError::ValidationError(ValidationError::ParsedError("Invalid hash format".into()))
+        })?;
 
         let is_valid = Argon2::default()
             .verify_password(payload.password.as_bytes(), &parsed_hash)
             .is_ok();
 
         if !is_valid {
-            return Err(ApiError::Unauthorized(
+            return Err(AppError::ValidationError(ValidationError::InvalidInput(
                 "Invalid username or password".into(),
-            ));
+            )));
         }
 
-        jwt::encode_jwt(user.username.clone())
-            .map_err(|_| ApiError::InternalServerError("Failed to create token".to_string()))
+        jwt::encode_jwt(user.username.clone()).map_err(|_| {
+            AppError::TokenError(TokenError::GenerationFailed(
+                "Failed to generate token".to_string(),
+            ))
+        })
     }
 
-    pub async fn get_current_user_info(&self, claims: &Claims) -> Result<String, ApiError> {
+    pub async fn get_current_user_info(&self, claims: &Claims) -> Result<PublicUser, AppError> {
         let user = self
             .repo
             .find_user_by_username(&claims.sub)
             .await?
-            .ok_or(ApiError::NotFound("User not found".to_string()))?;
+            .ok_or(AppError::NotFound("User not found".to_string()))?;
 
-        Ok(format!(
-            "current user: {}, email: {}, created at: {}",
-            user.username, user.email, user.created_at
-        ))
+        let user = PublicUser::from(user);
+
+        Ok(user)
     }
 
-    pub async fn list_users(&self, claims: &Claims) -> Result<Vec<User>, ApiError> {
+    pub async fn list_users(&self, claims: &Claims) -> Result<Vec<User>, AppError> {
         let user = self
             .repo
             .find_user_by_username(&claims.sub)
             .await?
-            .ok_or(ApiError::NotFound("User not found".to_string()))?;
+            .ok_or(AppError::NotFound("User not found".to_string()))?;
 
-        if user.role != UserRole::Admin {
-            return Err(ApiError::Forbidden("Insufficient permissions".to_string()));
+        if user.role != UserRole::Admin && user.role != UserRole::Operator {
+            return Err(AppError::ValidationError(
+                ValidationError::PermissionDenied("Insufficient permissions".to_string()),
+            ));
         }
 
         self.repo.list_all_users().await
     }
 
-    pub async fn health_check(&self) -> Result<String, ApiError> {
-        let val = self.repo.health_check().await?;
-        Ok(format!("DB says: {}", val))
+    pub async fn health_check(&self) -> Result<(), AppError> {
+        let is_healthy = self.repo.health_check().await?;
+        if is_healthy {
+            Ok(())
+        } else {
+            Err(AppError::HealthCheckFailed)
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        api::error::ApiError,
-        domain::user::{User, UserRole},
-    };
+    use crate::domain::user::{User, UserRole};
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
@@ -131,10 +144,10 @@ mod tests {
 
         #[async_trait]
         impl UserRepository for UserRepository {
-            async fn insert_user(&self, user: &User) -> Result<(), ApiError>;
-            async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, ApiError>;
-            async fn list_all_users(&self) -> Result<Vec<User>, ApiError>;
-            async fn health_check(&self) -> Result<i32, ApiError>;
+            async fn insert_user(&self, user: &User) -> Result<(), AppError>;
+            async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+            async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
+            async fn health_check(&self) -> Result<bool, AppError>;
         }
     }
 
@@ -190,7 +203,7 @@ mod tests {
                 password: "".into(),
             })
             .await;
-        assert!(matches!(res, Err(ApiError::BadRequest(_))));
+        assert!(matches!(res, Err(AppError::MissingArgument(_))));
     }
 
     #[tokio::test]
@@ -235,17 +248,22 @@ mod tests {
             })
             .await;
 
-        assert!(matches!(res, Err(ApiError::Unauthorized(_))));
+        assert!(matches!(
+            res,
+            Err(AppError::ValidationError(ValidationError::InvalidInput(_)))
+        ));
     }
 
     #[tokio::test]
     async fn test_get_current_user_info_should_return_info() {
         let user = make_test_user("jane", "pass", UserRole::Operator);
         let user_clone = user.clone();
+
         let mut mock_repo = MockUserRepository::new();
         mock_repo
             .expect_find_user_by_username()
             .returning(move |_| Ok(Some(user_clone.clone())));
+
         let service = UserService::new(mock_repo);
 
         let claims = Claims {
@@ -253,9 +271,13 @@ mod tests {
             iat: 0,
             exp: 0,
         };
+
         let info = service.get_current_user_info(&claims).await.unwrap();
-        assert!(info.contains(&user.username));
-        assert!(info.contains(&user.email));
+
+        assert_eq!(info.username, user.username);
+        assert_eq!(info.email, user.email);
+        assert_eq!(info.role, user.role);
+        assert_eq!(info.id, user.id);
     }
 
     #[tokio::test]
@@ -271,7 +293,7 @@ mod tests {
             exp: 0,
         };
         let res = service.get_current_user_info(&claims).await;
-        assert!(matches!(res, Err(ApiError::NotFound(_))));
+        assert!(matches!(res, Err(AppError::NotFound(_))));
     }
 
     #[tokio::test]
@@ -306,8 +328,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_users_should_forbid_non_admin() {
-        let user = make_test_user("bob", "pass", UserRole::Operator);
+    async fn test_list_users_should_forbid() {
+        let user = make_test_user("bob", "pass", UserRole::User);
         let mut mock_repo = MockUserRepository::new();
         mock_repo
             .expect_find_user_by_username()
@@ -328,16 +350,21 @@ mod tests {
             exp: 0,
         };
         let res = service.list_users(&claims).await;
-        assert!(matches!(res, Err(ApiError::Forbidden(_))));
+        assert!(matches!(
+            res,
+            Err(AppError::ValidationError(
+                ValidationError::PermissionDenied(_)
+            ))
+        ));
     }
 
     #[tokio::test]
     async fn test_health_check_should_return_db_value() {
         let mut mock_repo = MockUserRepository::new();
-        mock_repo.expect_health_check().returning(|| Ok(1));
+        mock_repo.expect_health_check().returning(|| Ok(true));
         let service = UserService::new(mock_repo);
 
-        let result = service.health_check().await.unwrap();
-        assert_eq!(result, "DB says: 1");
+        let result = service.health_check().await;
+        assert!(result.is_ok());
     }
 }

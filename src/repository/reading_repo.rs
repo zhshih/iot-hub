@@ -1,13 +1,13 @@
 use crate::{
-    api::error::ApiError,
     domain::reading::{Reading, ReadingType},
+    error::AppError,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, query_builder::QueryBuilder};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PaginatedResult<T> {
     pub data: Vec<T>,
     pub next_cursor: Option<DateTime<Utc>>,
@@ -16,40 +16,25 @@ pub struct PaginatedResult<T> {
 
 #[async_trait::async_trait]
 pub trait ReadingRepository: Send + Sync {
-    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), ApiError>;
-    async fn insert_readings(&self, device_id: Uuid, readings: &[Reading]) -> Result<(), ApiError>;
-    async fn get_readings_by_device(
+    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), AppError>;
+    async fn insert_readings(
         &self,
         device_id: Uuid,
-        limit: i64,
-    ) -> Result<Vec<Reading>, ApiError>;
-    async fn get_latest_reading(&self, device_id: Uuid) -> Result<Option<Reading>, ApiError>;
-    async fn get_readings_in_range(
+        readings: &[Reading],
+    ) -> Result<(u64, DateTime<Utc>), AppError>;
+    async fn get_readings_filtered_paginated(
         &self,
         device_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
-    ) -> Result<Vec<Reading>, ApiError>;
-    async fn get_readings_by_device_paginated(
-        &self,
-        device_id: Uuid,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
         cursor: Option<DateTime<Utc>>,
-        limit: i64,
-    ) -> Result<PaginatedResult<Reading>, ApiError>;
-
-    async fn get_readings_in_range_paginated(
-        &self,
-        device_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
-        cursor: Option<DateTime<Utc>>,
-        limit: i64,
-    ) -> Result<PaginatedResult<Reading>, ApiError>;
+        limit: Option<usize>,
+    ) -> Result<PaginatedResult<Reading>, AppError>;
 }
 
 #[async_trait::async_trait]
 impl ReadingRepository for PgPool {
-    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), ApiError> {
+    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             INSERT INTO readings (device_id, arrived_timestamp, processed_timestamp, reading_type, value)
@@ -63,226 +48,80 @@ impl ReadingRepository for PgPool {
         )
         .execute(self)
         .await
-        .map_err(|e| ApiError::InternalServerError(format!("Failed to insert readings: {}", e)))?;
+        .map_err(|e| AppError::DatabaseError(format!("Failed to insert readings: {}", e)))?;
 
         Ok(())
     }
 
-    async fn insert_readings(&self, device_id: Uuid, readings: &[Reading]) -> Result<(), ApiError> {
-        for reading in readings {
-            self.insert_reading(device_id, reading).await?;
+    async fn insert_readings(
+        &self,
+        device_id: Uuid,
+        readings: &[Reading],
+    ) -> Result<(u64, DateTime<Utc>), AppError> {
+        if readings.is_empty() {
+            return Ok((0, Utc::now()));
         }
 
-        Ok(())
+        let mut query_builder: sqlx::QueryBuilder<Postgres> = sqlx::QueryBuilder::new(
+            "INSERT INTO readings (device_id, arrived_timestamp, processed_timestamp, reading_type, value) ",
+        );
+        query_builder.push_values(readings, |mut b, reading| {
+            b.push_bind(device_id)
+                .push_bind(reading.arrived_timestamp)
+                .push_bind(reading.processed_timestamp)
+                .push_bind(reading.reading_type)
+                .push_bind(reading.value);
+        });
+
+        let result =
+            query_builder.build().execute(self).await.map_err(|e| {
+                AppError::DatabaseError(format!("Failed to insert readings: {}", e))
+            })?;
+
+        Ok((result.rows_affected(), Utc::now()))
     }
 
-    async fn get_readings_by_device(
+    async fn get_readings_filtered_paginated(
         &self,
         device_id: Uuid,
-        limit: i64,
-    ) -> Result<Vec<Reading>, ApiError> {
-        let readings = if limit > 0 {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                ORDER BY arrived_timestamp ASC
-                LIMIT $2
-                "#,
-                device_id,
-                limit
-            )
-            .fetch_all(self)
-            .await
-        } else {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                ORDER BY arrived_timestamp ASC
-                "#,
-                device_id
-            )
-            .fetch_all(self)
-            .await
-        }
-        .map_err(|e| {
-            ApiError::InternalServerError(format!("Failed to fetch readings by device: {}", e))
-        })?;
-
-        Ok(readings)
-    }
-
-    async fn get_latest_reading(&self, device_id: Uuid) -> Result<Option<Reading>, ApiError> {
-        let reading = sqlx::query_as!(
-            Reading,
-            r#"
-            SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-            FROM readings
-            WHERE device_id = $1
-            ORDER BY arrived_timestamp DESC
-            LIMIT 1
-            "#,
-            device_id
-        )
-        .fetch_optional(self)
-        .await
-        .map_err(|e| {
-            ApiError::InternalServerError(format!(
-                "Failed to fetch latest reading by device: {}",
-                e
-            ))
-        })?;
-
-        Ok(reading)
-    }
-
-    async fn get_readings_in_range(
-        &self,
-        device_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
-    ) -> Result<Vec<Reading>, ApiError> {
-        let readings = sqlx::query_as!(
-            Reading,
-            r#"
-            SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-            FROM readings
-            WHERE device_id = $1
-              AND arrived_timestamp >= $2
-              AND arrived_timestamp <= $3
-            ORDER BY arrived_timestamp ASC
-            "#,
-            device_id,
-            from,
-            to
-        )
-        .fetch_all(self)
-        .await
-        .map_err(|e| {
-            ApiError::InternalServerError(format!("Failed to fetch readings by device: {}", e))
-        })?;
-
-        Ok(readings)
-    }
-
-    async fn get_readings_by_device_paginated(
-        &self,
-        device_id: Uuid,
+        from: Option<DateTime<Utc>>,
+        to: Option<DateTime<Utc>>,
         cursor: Option<DateTime<Utc>>,
-        limit: i64,
-    ) -> Result<PaginatedResult<Reading>, ApiError> {
-        let readings = if let Some(cursor) = cursor {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                AND arrived_timestamp > $2
-                ORDER BY arrived_timestamp ASC
-                LIMIT $3
-                "#,
-                device_id,
-                cursor,
-                limit,
-            )
-            .fetch_all(self)
-            .await
-        } else {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                ORDER BY arrived_timestamp ASC
-                LIMIT $2
-                "#,
-                device_id,
-                limit,
-            )
-            .fetch_all(self)
-            .await
+        limit: Option<usize>,
+    ) -> Result<PaginatedResult<Reading>, AppError> {
+        let limit = limit.unwrap_or(100);
+
+        let mut qb = QueryBuilder::new("SELECT * FROM readings WHERE device_id = ");
+        qb.push_bind(device_id);
+
+        if let Some(from) = from {
+            qb.push(" AND arrived_timestamp >= ").push_bind(from);
         }
-        .map_err(|e| {
-            ApiError::InternalServerError(format!("Failed to fetch paginated readings: {}", e))
+
+        if let Some(to) = to {
+            qb.push(" AND arrived_timestamp <= ").push_bind(to);
+        }
+
+        if let Some(cursor) = cursor {
+            qb.push(" AND arrived_timestamp < ").push_bind(cursor);
+        }
+
+        qb.push(" ORDER BY arrived_timestamp DESC ");
+        qb.push(" LIMIT ").push_bind(limit as i64 + 1);
+        let query = qb.build_query_as::<Reading>();
+
+        let rows: Vec<Reading> = query.fetch_all(&*self).await.map_err(|e| {
+            AppError::DatabaseError(format!("Failed to fetch paginated readings: {}", e))
         })?;
 
-        let next_cursor = readings.last().map(|r| r.arrived_timestamp);
-
-        let has_more = readings.len() as i64 == limit;
+        let has_more = rows.len() > limit;
+        let data = rows.into_iter().take(limit).collect::<Vec<_>>();
+        let next_cursor = data.last().map(|r| r.arrived_timestamp);
 
         Ok(PaginatedResult {
-            data: readings,
-            next_cursor,
+            data,
             has_more,
-        })
-    }
-
-    async fn get_readings_in_range_paginated(
-        &self,
-        device_id: Uuid,
-        from: DateTime<Utc>,
-        to: DateTime<Utc>,
-        cursor: Option<DateTime<Utc>>,
-        limit: i64,
-    ) -> Result<PaginatedResult<Reading>, ApiError> {
-        let readings = if let Some(cursor) = cursor {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                AND arrived_timestamp > $2
-                AND arrived_timestamp <= $3
-                ORDER BY arrived_timestamp ASC
-                LIMIT $4
-                "#,
-                device_id,
-                cursor,
-                to,
-                limit,
-            )
-            .fetch_all(self)
-            .await
-        } else {
-            sqlx::query_as!(
-                Reading,
-                r#"
-                SELECT device_id, arrived_timestamp, processed_timestamp, reading_type as "reading_type: _", value
-                FROM readings
-                WHERE device_id = $1
-                AND arrived_timestamp >= $2
-                AND arrived_timestamp <= $3
-                ORDER BY arrived_timestamp ASC
-                LIMIT $4
-                "#,
-                device_id,
-                from,
-                to,
-                limit,
-            )
-            .fetch_all(self)
-            .await
-        }
-        .map_err(|e| {
-            ApiError::InternalServerError(format!("Failed to fetch paginated readings: {}", e))
-        })?;
-
-        let next_cursor = readings.last().map(|r| r.arrived_timestamp);
-
-        let has_more = readings.len() as i64 == limit;
-
-        Ok(PaginatedResult {
-            data: readings,
             next_cursor,
-            has_more,
         })
     }
 }
@@ -301,36 +140,16 @@ mod tests {
 
         #[async_trait]
         impl ReadingRepository for ReadingRepository {
-            async fn insert_reading(&self, device_id: Uuid,reading: &Reading) -> Result<(), ApiError>;
-            async fn insert_readings(&self, device_id: Uuid,readings: &[Reading]) -> Result<(), ApiError>;
-            async fn get_readings_by_device(
+            async fn insert_reading(&self, device_id: Uuid,reading: &Reading) -> Result<(), AppError>;
+            async fn insert_readings(&self, device_id: Uuid,readings: &[Reading]) -> Result<(u64, DateTime<Utc>), AppError>;
+            async fn get_readings_filtered_paginated(
                 &self,
                 device_id: Uuid,
-                limit: i64,
-            ) -> Result<Vec<Reading>, ApiError>;
-            async fn get_latest_reading(&self, device_id: Uuid) -> Result<Option<Reading>, ApiError>;
-            async fn get_readings_in_range(
-                &self,
-                device_id: Uuid,
-                from: DateTime<Utc>,
-                to: DateTime<Utc>,
-            ) -> Result<Vec<Reading>, ApiError>;
-
-            async fn get_readings_by_device_paginated(
-                &self,
-                device_id: Uuid,
+                from: Option<DateTime<Utc>>,
+                to: Option<DateTime<Utc>>,
                 cursor: Option<DateTime<Utc>>,
-                limit: i64,
-            ) -> Result<PaginatedResult<Reading>, ApiError>;
-
-            async fn get_readings_in_range_paginated(
-                &self,
-                device_id: Uuid,
-                from: DateTime<Utc>,
-                to: DateTime<Utc>,
-                cursor: Option<DateTime<Utc>>,
-                limit: i64,
-            ) -> Result<PaginatedResult<Reading>, ApiError>;
+                limit: Option<usize>,
+            ) -> Result<PaginatedResult<Reading>, AppError>;
         }
     }
 
@@ -361,276 +180,82 @@ mod tests {
     #[tokio::test]
     async fn test_insert_readings_success() {
         let mut mock_repo = MockReadingRepository::new();
+
         mock_repo
             .expect_insert_readings()
-            .returning(|_device_id, _reading| Ok(()));
+            .returning(|_device_id, _reading| Ok((1, Utc::now())));
 
         let device_id = Uuid::new_v4();
         let readings = vec![sample_reading(device_id, 0), sample_reading(device_id, 10)];
 
         let result = mock_repo.insert_readings(device_id, &readings).await;
+
         assert!(result.is_ok());
+        let (count, timestamp) = result.unwrap();
+        assert_eq!(count, 1);
+        assert_ne!(timestamp.to_string().len(), 0);
     }
 
     #[tokio::test]
-    async fn test_get_readings_by_device_returns_multiple() {
+    async fn test_get_readings_filtered_paginated_success() {
         let mut mock_repo = MockReadingRepository::new();
 
         let device_id = Uuid::new_v4();
-        let readings = vec![sample_reading(device_id, 0), sample_reading(device_id, 60)];
+
+        let r1 = sample_reading(device_id, -30);
+        let r2 = sample_reading(device_id, -20);
+        let r3 = sample_reading(device_id, -10);
+
+        let expected_result = PaginatedResult {
+            data: vec![r1.clone(), r2.clone(), r3.clone()],
+            has_more: false,
+            next_cursor: Some(r3.arrived_timestamp),
+        };
 
         mock_repo
-            .expect_get_readings_by_device()
-            .returning(move |_, _| Ok(readings.clone()));
-
-        let found = mock_repo
-            .get_readings_by_device(device_id, 0)
-            .await
-            .unwrap();
-        assert_eq!(found.len(), 2);
-        assert_eq!(found[0].device_id, device_id);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_by_device_with_limit() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let readings = vec![sample_reading(device_id, 0), sample_reading(device_id, 60)];
-
-        mock_repo
-            .expect_get_readings_by_device()
-            .returning(move |_, limit| {
-                if limit > 0 {
-                    Ok(readings.clone().into_iter().take(limit as usize).collect())
-                } else {
-                    Ok(readings.clone())
-                }
-            });
-
-        let found = mock_repo
-            .get_readings_by_device(device_id, 1)
-            .await
-            .unwrap();
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].device_id, device_id);
-    }
-
-    #[tokio::test]
-    async fn test_get_latest_reading_returns_last() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let latest = sample_reading(device_id, 100);
-
-        let latest_cloned = latest.clone();
-        mock_repo
-            .expect_get_latest_reading()
-            .returning(move |_| Ok(Some(latest_cloned.clone())));
-
-        let found = mock_repo.get_latest_reading(device_id).await.unwrap();
-        assert!(found.is_some());
-        assert_eq!(found.unwrap(), latest);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_in_range_returns_subset() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let from = Utc::now();
-        let to = from + Duration::minutes(5);
-
-        let readings = vec![sample_reading(device_id, 10), sample_reading(device_id, 20)];
-
-        mock_repo
-            .expect_get_readings_in_range()
-            .returning(move |_, _, _| Ok(readings.clone()));
-
-        let found = mock_repo
-            .get_readings_in_range(device_id, from, to)
-            .await
-            .unwrap();
-        assert_eq!(found.len(), 2);
-        assert_eq!(found[0].device_id, device_id);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_by_device_paginated_no_cursor() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let readings = vec![sample_reading(device_id, 10), sample_reading(device_id, 20)];
-
-        mock_repo
-            .expect_get_readings_by_device_paginated()
-            .returning(move |_, cursor, limit| {
-                assert!(cursor.is_none());
-                let mut result = readings.clone();
-                result.truncate(limit as usize);
-                Ok(PaginatedResult {
-                    data: result.clone(),
-                    next_cursor: result.last().map(|r| r.arrived_timestamp),
-                    has_more: result.len() as i64 == limit,
-                })
-            });
+            .expect_get_readings_filtered_paginated()
+            .withf(move |d, from, to, cursor, limit| {
+                *d == device_id
+                    && from.is_none()
+                    && to.is_none()
+                    && cursor.is_none()
+                    && limit == &Some(3)
+            })
+            .return_once(move |_, _, _, _, _| Ok(expected_result.clone()));
 
         let result = mock_repo
-            .get_readings_by_device_paginated(device_id, None, 2)
+            .get_readings_filtered_paginated(device_id, None, None, None, Some(3))
             .await
             .unwrap();
 
-        assert_eq!(result.data.len(), 2);
-        assert!(result.next_cursor.is_some());
-        assert!(result.has_more);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_by_device_paginated_with_cursor() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let cursor = Utc::now();
-        let readings = vec![sample_reading(device_id, 30)];
-        mock_repo
-            .expect_get_readings_by_device_paginated()
-            .returning(move |_, cur, limit| {
-                assert!(cur.is_some());
-                assert_eq!(limit, 1);
-                Ok(PaginatedResult {
-                    data: readings.clone(),
-                    next_cursor: Some(readings[0].arrived_timestamp),
-                    has_more: readings.len() as i64 == limit,
-                })
-            });
-
-        let result = mock_repo
-            .get_readings_by_device_paginated(device_id, Some(cursor), 1)
-            .await
-            .unwrap();
-
-        assert_eq!(result.data.len(), 1);
-        assert!(result.next_cursor.is_some());
-        assert!(result.has_more);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_in_range_paginated_no_cursor() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let from = Utc::now();
-        let to = from + Duration::minutes(5);
-        let readings = vec![sample_reading(device_id, 10), sample_reading(device_id, 20)];
-
-        mock_repo
-            .expect_get_readings_in_range_paginated()
-            .returning(move |_, f, t, cursor, limit| {
-                assert!(cursor.is_none());
-                assert!(f <= t);
-                let mut result = readings.clone();
-                result.truncate(limit as usize);
-                Ok(PaginatedResult {
-                    data: result.clone(),
-                    next_cursor: result.last().map(|r| r.arrived_timestamp),
-                    has_more: result.len() as i64 == limit,
-                })
-            });
-
-        let result = mock_repo
-            .get_readings_in_range_paginated(device_id, from, to, None, 2)
-            .await
-            .unwrap();
-
-        assert_eq!(result.data.len(), 2);
-        assert!(result.next_cursor.is_some());
-        assert!(result.has_more);
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_in_range_paginated_with_cursor() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let from = Utc::now();
-        let to = from + Duration::minutes(5);
-        let cursor = from + Duration::seconds(30);
-        let readings = vec![sample_reading(device_id, 40)];
-
-        mock_repo
-            .expect_get_readings_in_range_paginated()
-            .returning(move |_, f, t, cur, limit| {
-                assert!(cur.is_some());
-                assert!(f <= t);
-                assert_eq!(limit, 1);
-                Ok(PaginatedResult {
-                    data: readings.clone(),
-                    next_cursor: Some(readings[0].arrived_timestamp),
-                    has_more: false,
-                })
-            });
-
-        let result = mock_repo
-            .get_readings_in_range_paginated(device_id, from, to, Some(cursor), 1)
-            .await
-            .unwrap();
-
-        assert_eq!(result.data.len(), 1);
-        assert!(result.next_cursor.is_some());
+        assert_eq!(result.data.len(), 3);
         assert!(!result.has_more);
+        assert_eq!(result.next_cursor, Some(r3.arrived_timestamp));
     }
 
     #[tokio::test]
-    async fn test_get_readings_by_device_paginated_error() {
+    async fn test_get_readings_filtered_paginated_empty() {
         let mut mock_repo = MockReadingRepository::new();
 
         let device_id = Uuid::new_v4();
 
         mock_repo
-            .expect_get_readings_by_device_paginated()
-            .returning(move |_, _, _| {
-                Err(ApiError::InternalServerError(
-                    "DB connection failed".to_string(),
-                ))
+            .expect_get_readings_filtered_paginated()
+            .return_once(|_, _, _, _, _| {
+                Ok(PaginatedResult {
+                    data: vec![],
+                    has_more: false,
+                    next_cursor: None,
+                })
             });
 
         let result = mock_repo
-            .get_readings_by_device_paginated(device_id, None, 10)
-            .await;
+            .get_readings_filtered_paginated(device_id, None, None, None, Some(5))
+            .await
+            .unwrap();
 
-        assert!(result.is_err());
-        match result {
-            Err(ApiError::InternalServerError(msg)) => {
-                assert!(msg.contains("DB connection failed"));
-            }
-            _ => panic!("Expected InternalServerError"),
-        }
-    }
-
-    #[tokio::test]
-    async fn test_get_readings_in_range_paginated_error() {
-        let mut mock_repo = MockReadingRepository::new();
-
-        let device_id = Uuid::new_v4();
-        let from = Utc::now();
-        let to = from + Duration::minutes(5);
-
-        mock_repo
-            .expect_get_readings_in_range_paginated()
-            .returning(move |_, _, _, _, _| {
-                Err(ApiError::InternalServerError("Query timeout".to_string()))
-            });
-
-        let result = mock_repo
-            .get_readings_in_range_paginated(device_id, from, to, None, 5)
-            .await;
-
-        assert!(result.is_err());
-        match result {
-            Err(ApiError::InternalServerError(msg)) => {
-                assert!(msg.contains("Query timeout"));
-            }
-            _ => panic!("Expected InternalServerError"),
-        }
+        assert!(result.data.is_empty());
+        assert!(!result.has_more);
+        assert!(result.next_cursor.is_none());
     }
 }
