@@ -13,6 +13,8 @@ use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use std::env::VarError;
 use std::{env, net::SocketAddr};
+use tower::limit::ConcurrencyLimitLayer;
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -63,6 +65,13 @@ pub fn truncate_to_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 fn create_app(state: AppState) -> Router {
+    let governor_conf = Box::new(
+        GovernorConfigBuilder::default()
+            .per_second(10)
+            .burst_size(30)
+            .finish()
+            .unwrap(),
+    );
     Router::new()
         .nest("/devices", api::devices::routes())
         .nest("/readings", api::readings::routes())
@@ -93,4 +102,6 @@ fn create_app(state: AppState) -> Router {
                     },
                 ),
         )
+        .layer(GovernorLayer::new(governor_conf))
+        .layer(ConcurrencyLimitLayer::new(100))
 }
