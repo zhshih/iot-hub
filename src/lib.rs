@@ -7,7 +7,8 @@ pub mod repository;
 pub mod service;
 
 use crate::{app_state::AppState, error::AppError};
-use axum::{Router, http};
+use axum::{Router, http, routing::get};
+use axum_prometheus::PrometheusMetricLayer;
 use chrono::{DateTime, Timelike, Utc};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
@@ -65,6 +66,8 @@ pub fn truncate_to_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
 }
 
 fn create_app(state: AppState) -> Router {
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_second(10)
@@ -72,10 +75,18 @@ fn create_app(state: AppState) -> Router {
             .finish()
             .unwrap(),
     );
+
     Router::new()
         .nest("/devices", api::devices::routes())
         .nest("/readings", api::readings::routes())
         .nest("/users", api::users::routes())
+        .route(
+            "/metrics",
+            get({
+                let handle = metric_handle.clone();
+                move || async move { handle.render() }
+            }),
+        )
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
@@ -104,4 +115,5 @@ fn create_app(state: AppState) -> Router {
         )
         .layer(GovernorLayer::new(governor_conf))
         .layer(ConcurrencyLimitLayer::new(100))
+        .layer(prometheus_layer)
 }
