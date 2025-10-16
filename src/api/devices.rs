@@ -1,7 +1,7 @@
 use crate::{
     api::response::{ApiResponse, HandlerResult},
     app_state::AppState,
-    auth::middleware::AuthUser,
+    auth::extractor::AuthUser,
     domain::device::{Device, RegisteredDevice},
     service::device_service::DeviceService,
 };

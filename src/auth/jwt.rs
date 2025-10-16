@@ -14,17 +14,6 @@ pub struct Claims {
     pub sub: String,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct AuthRequest {
-    pub username: String,
-    pub password: String,
-}
-
-#[derive(Serialize, Debug)]
-pub struct AuthResponse {
-    pub token: String,
-}
-
 pub fn encode_jwt(id: String) -> Result<String, StatusCode> {
     let now = Utc::now();
     let expiration = now

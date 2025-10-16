@@ -1,7 +1,7 @@
 use crate::{
     api::response::{ApiResponse, HandlerResult},
     app_state::AppState,
-    auth::{jwt::AuthRequest, middleware::AuthUser},
+    auth::{dto::AuthRequest, extractor::AuthUser},
     domain::user::{PublicUser, SignupRequest, User},
     service::user_service::UserService,
 };

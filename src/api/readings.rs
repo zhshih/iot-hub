@@ -1,7 +1,7 @@
 use super::error::ApiError;
 use crate::{
     api::response::{ApiResponse, HandlerResult},
-    auth::middleware::AuthUser,
+    auth::extractor::AuthUser,
     service::reading_service::ReadingService,
     {app_state::AppState, domain::reading::Reading},
 };
