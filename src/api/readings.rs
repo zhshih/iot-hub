@@ -2,6 +2,9 @@ use super::error::ApiError;
 use crate::{
     api::response::{ApiResponse, HandlerResult},
     auth::extractor::AuthUser,
+    dto::reading::{
+        GetPaginatedReadingResponse, GetReadingResponse, PostReadingResponse, ReadingRequest,
+    },
     service::reading_service::ReadingService,
     {app_state::AppState, domain::reading::Reading},
 };
@@ -10,8 +13,8 @@ use axum::{
     extract::{Path, Query, State},
     routing::{get, post},
 };
-use chrono::{DateTime, TimeZone, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::{TimeZone, Utc};
+use serde::Deserialize;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -20,19 +23,6 @@ pub struct ReadingQuery {
     pub to: Option<i64>,
     pub cursor: Option<i64>,
     pub limit: Option<usize>,
-}
-
-#[derive(Serialize)]
-pub struct PostReadingResponse {
-    pub inserted: u64,
-    pub device_id: Option<Uuid>,
-    pub created_at: Option<DateTime<Utc>>,
-}
-
-#[derive(Serialize)]
-pub struct GetReadingResponse {
-    pub device_id: Uuid,
-    pub readings: Vec<Reading>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -51,14 +41,6 @@ impl<T> OneOrMany<T> {
     }
 }
 
-#[derive(Serialize)]
-pub struct GetPaginatedReadingResponse {
-    pub device_id: Uuid,
-    pub readings: Vec<Reading>,
-    pub next_cursor: Option<i64>,
-    pub has_more: bool,
-}
-
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/{device_id}/readings", post(post_readings))
@@ -70,17 +52,14 @@ async fn post_readings(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
     AuthUser(_user): AuthUser,
-    Json(payload): Json<OneOrMany<Reading>>,
+    Json(payload): Json<OneOrMany<ReadingRequest>>,
 ) -> HandlerResult<PostReadingResponse> {
     let service = ReadingService::new(state.db_pool.clone());
-    let readings = payload.into_vec();
+    let requests = payload.into_vec();
 
-    let readings: Vec<Reading> = readings
+    let readings: Vec<Reading> = requests
         .into_iter()
-        .map(|mut r| {
-            r.device_id = id;
-            r
-        })
+        .map(|req| Reading::from_request(req, id))
         .collect();
 
     let result = service.post_readings(id, readings).await?;

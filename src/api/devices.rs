@@ -2,7 +2,11 @@ use crate::{
     api::response::{ApiResponse, HandlerResult},
     app_state::AppState,
     auth::extractor::AuthUser,
-    domain::device::{Device, RegisteredDevice},
+    domain::device::RegisteredDevice,
+    dto::device::{
+        DeleteDeviceResponse, GetDeviceResponse, GetDevicesResponse, RegisterDeviceRequest,
+        RegisterDeviceResponse,
+    },
     service::device_service::DeviceService,
 };
 use axum::{
@@ -10,26 +14,7 @@ use axum::{
     extract::{Path, State},
     routing::{delete, get, post},
 };
-use serde::Serialize;
 use uuid::Uuid;
-
-#[derive(Serialize)]
-pub struct GenericDeviceResponse<T> {
-    pub device_id: T,
-}
-
-#[derive(Serialize)]
-struct GetDevicesResponse {
-    pub devices: Vec<Device>,
-}
-
-#[derive(Serialize)]
-pub struct GetDeviceResponse {
-    pub device: Device,
-}
-
-type RegisterDeviceResponse = GenericDeviceResponse<String>;
-type DeleteDeviceResponse = GenericDeviceResponse<String>;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -42,10 +27,12 @@ pub fn routes() -> Router<AppState> {
 async fn register_device(
     State(state): State<AppState>,
     AuthUser(_user): AuthUser,
-    Json(payload): Json<RegisteredDevice>,
+    Json(payload): Json<RegisterDeviceRequest>,
 ) -> HandlerResult<RegisterDeviceResponse> {
     let service = DeviceService::new(state.db_pool.clone());
-    let id = service.register_device(payload).await?;
+
+    let device = RegisteredDevice::from_request(payload);
+    let id = service.register_device(device).await?;
 
     Ok(Json(ApiResponse::success(RegisterDeviceResponse {
         device_id: id,
@@ -56,7 +43,8 @@ async fn get_devices(
     AuthUser(_user): AuthUser,
     State(state): State<AppState>,
 ) -> HandlerResult<GetDevicesResponse> {
-    let service = DeviceService::new(state.db_pool.clone());
+    let service: DeviceService<sqlx::Pool<sqlx::Postgres>> =
+        DeviceService::new(state.db_pool.clone());
     let devices = service.get_devices().await?;
 
     println!("Devices fetched: {:?}", devices);

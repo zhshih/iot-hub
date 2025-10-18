@@ -1,3 +1,4 @@
+use crate::dto::user::SignupRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
@@ -33,10 +34,20 @@ impl fmt::Display for UserRole {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct SignupRequest {
+pub struct SignupUser {
     pub username: String,
     pub email: String,
     pub password: String,
+}
+
+impl SignupUser {
+    pub fn from_request(req: SignupRequest) -> Self {
+        Self {
+            username: req.username,
+            email: req.email,
+            password: req.password,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

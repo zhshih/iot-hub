@@ -1,6 +1,7 @@
 use crate::{
-    auth::jwt::{self, AuthRequest, Claims},
-    domain::user::{PublicUser, SignupRequest, User, UserRole},
+    auth::jwt::{self, Claims},
+    domain::user::{PublicUser, SignupUser, User, UserRole},
+    dto::auth::AuthRequest,
     error::{AppError, TokenError, ValidationError},
     repository::user_repo::UserRepository,
 };
@@ -19,7 +20,7 @@ impl<R: UserRepository> UserService<R> {
         Self { repo }
     }
 
-    pub async fn signup(&self, payload: SignupRequest) -> Result<String, AppError> {
+    pub async fn signup(&self, payload: SignupUser) -> Result<String, AppError> {
         if payload.username.is_empty() || payload.password.is_empty() || payload.email.is_empty() {
             return Err(AppError::MissingArgument(
                 "Username, email, and password are required".to_string(),
@@ -180,7 +181,7 @@ mod tests {
         mock_repo.expect_insert_user().returning(|_| Ok(()));
         let service = UserService::new(mock_repo);
         let token = service
-            .signup(SignupRequest {
+            .signup(SignupUser {
                 username: "test".into(),
                 email: "test@example.com".into(),
                 password: "pass123".into(),
@@ -197,7 +198,7 @@ mod tests {
         mock_repo.expect_insert_user().returning(|_| Ok(()));
         let service = UserService::new(mock_repo);
         let res = service
-            .signup(SignupRequest {
+            .signup(SignupUser {
                 username: "".into(),
                 email: "".into(),
                 password: "".into(),

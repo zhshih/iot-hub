@@ -1,8 +1,15 @@
 use crate::{
     api::response::{ApiResponse, HandlerResult},
     app_state::AppState,
-    auth::{dto::AuthRequest, extractor::AuthUser},
-    domain::user::{PublicUser, SignupRequest, User},
+    auth::extractor::AuthUser,
+    domain::user::SignupUser,
+    dto::{
+        auth::AuthRequest,
+        user::{
+            HealthCheckResponse, ListUsersResponse, LoginResponse, MeResponse, SignupRequest,
+            SignupResponse,
+        },
+    },
     service::user_service::UserService,
 };
 use axum::{
@@ -10,28 +17,6 @@ use axum::{
     extract::State,
     routing::{get, post},
 };
-use serde::Serialize;
-
-#[derive(Serialize)]
-pub struct TokenResponse<T> {
-    pub token: T,
-}
-
-#[derive(Serialize)]
-pub struct MeResponse {
-    pub user: PublicUser,
-}
-
-#[derive(Serialize)]
-pub struct HealthCheckResponse;
-
-#[derive(Serialize)]
-pub struct ListUsersResponse {
-    pub users: Vec<User>,
-}
-
-type SignupResponse = TokenResponse<String>;
-type LoginResponse = TokenResponse<String>;
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -47,7 +32,9 @@ async fn signup(
     Json(payload): Json<SignupRequest>,
 ) -> HandlerResult<SignupResponse> {
     let service = UserService::new(state.db_pool.clone());
-    let token = service.signup(payload).await?;
+
+    let user = SignupUser::from_request(payload);
+    let token = service.signup(user).await?;
 
     Ok(Json(ApiResponse::success(SignupResponse { token })))
 }

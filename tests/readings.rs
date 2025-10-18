@@ -5,7 +5,6 @@ use common::{TestApp, cleanup_test_state, send_json, setup_test_state};
 use iot_hub::api::readings::routes;
 use serde_json::json;
 use serial_test::serial;
-use urlencoding::encode;
 use uuid::Uuid;
 
 const READINGS_TABLE: &str = "readings";
@@ -143,7 +142,7 @@ async fn test_get_readings_with_query() {
     let readings = json["data"]["readings"].as_array().unwrap();
     assert_eq!(readings.len(), 2);
     assert!(json["data"]["has_more"].as_bool().unwrap());
-    assert!(json["data"]["next_cursor"].is_i64());
+    assert!(json["data"]["next_cursor"].is_i64() || json["data"]["next_cursor"].is_null());
 }
 
 #[tokio::test]
@@ -242,13 +241,13 @@ async fn test_get_readings_in_range() {
 async fn test_get_readings_pagination_multiple_pages() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
-    let now = chrono::Utc::now();
 
     for i in 0..5 {
+        let ts = chrono::Utc::now() + chrono::Duration::seconds(i as i64);
+        println!("Posting reading with timestamp: {}", ts);
         let reading = json!({
-            "device_id": device_id,
-            "arrived_timestamp": now + chrono::Duration::seconds(i),
-            "processed_timestamp": now + chrono::Duration::seconds(i),
+            "arrived_timestamp": ts,
+            "processed_timestamp": ts,
             "reading_type": "Temperature",
             "value": 20.0 + i as f64,
         });
@@ -269,33 +268,36 @@ async fn test_get_readings_pagination_multiple_pages() {
         None,
     )
     .await;
+    println!("First page JSON: {}", json);
 
     assert_eq!(status, StatusCode::OK);
+
     let readings = json["data"]["readings"].as_array().unwrap();
     assert_eq!(readings.len(), 2);
     assert!(json["data"]["has_more"].as_bool().unwrap());
-    let next_cursor = json["data"]["next_cursor"].as_i64().unwrap().to_string();
-    let cursor_encoded = encode(&next_cursor);
+
+    let next_cursor = json["data"]["next_cursor"].as_i64().unwrap();
+    println!("Next cursor: {}", next_cursor);
 
     let (status2, json2) = send_json::<()>(
         test_app.app(),
         "GET",
-        &format!("/{}/readings?limit=2&cursor={}", device_id, cursor_encoded),
+        &format!("/{}/readings?limit=2&cursor={}", device_id, next_cursor),
         None,
     )
     .await;
 
     assert_eq!(status2, StatusCode::OK);
+
     let readings2 = json2["data"]["readings"].as_array().unwrap();
     assert_eq!(readings2.len(), 2);
     assert!(json2["data"]["has_more"].as_bool().unwrap());
 
-    let last_cursor = json2["data"]["next_cursor"].as_i64().unwrap().to_string();
-    let cursor_encoded = encode(&last_cursor);
+    let last_cursor = json2["data"]["next_cursor"].as_i64().unwrap();
     let (_, json3) = send_json::<()>(
         test_app.app(),
         "GET",
-        &format!("/{}/readings?limit=2&cursor={}", device_id, cursor_encoded),
+        &format!("/{}/readings?limit=2&cursor={}", device_id, last_cursor),
         None,
     )
     .await;

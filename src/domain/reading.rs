@@ -1,3 +1,4 @@
+use crate::dto::reading::ReadingRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
@@ -27,12 +28,25 @@ impl fmt::Display for Reading {
     }
 }
 
+impl Reading {
+    pub fn from_request(req: ReadingRequest, device_id: Uuid) -> Self {
+        Self {
+            device_id,
+            arrived_timestamp: req.arrived_timestamp,
+            processed_timestamp: Utc::now(),
+            reading_type: ReadingType::from(req.reading_type),
+            value: req.value,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type)]
 #[sqlx(type_name = "TEXT")]
 pub enum ReadingType {
     Temperature,
     Voltage,
     Humidity,
+    Unknown,
 }
 
 impl fmt::Display for ReadingType {
@@ -41,6 +55,18 @@ impl fmt::Display for ReadingType {
             ReadingType::Temperature => write!(f, "temperature"),
             ReadingType::Voltage => write!(f, "voltage"),
             ReadingType::Humidity => write!(f, "humidity"),
+            ReadingType::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+impl From<String> for ReadingType {
+    fn from(s: String) -> Self {
+        match s.to_lowercase().as_str() {
+            "temperature" => Self::Temperature,
+            "humidity" => Self::Humidity,
+            "voltage" => Self::Voltage,
+            _ => Self::Unknown,
         }
     }
 }
