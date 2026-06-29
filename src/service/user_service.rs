@@ -112,7 +112,7 @@ impl<R: UserRepository> UserService<R> {
             .await?
             .ok_or(AppError::NotFound("User not found".to_string()))?;
 
-        if user.role != UserRole::Admin && user.role != UserRole::Operator {
+        if user.role != UserRole::Admin {
             return Err(AppError::ValidationError(
                 ValidationError::PermissionDenied("Insufficient permissions".to_string()),
             ));

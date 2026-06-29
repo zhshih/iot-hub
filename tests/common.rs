@@ -9,7 +9,8 @@ use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
 use tower::ServiceExt;
 
-const TEST_DATABASE_URL: &str = "postgres://test_user:test_password@localhost/iot_monitoring_test";
+pub const TEST_DATABASE_URL: &str =
+    "postgres://test_user:test_password@localhost/iot_monitoring_test";
 pub struct TestApp {
     pub app: Router,
 }
@@ -91,6 +92,43 @@ pub async fn send_json<T: Serialize>(
     payload: Option<T>,
 ) -> (StatusCode, Value) {
     let (status, body) = send_request(app, method, uri, payload).await;
+    match serde_json::from_str(&body) {
+        Ok(json) => (status, json),
+        Err(_) => {
+            panic!(
+                "Response was not valid JSON. Status: {:?}, Body: {}",
+                status, body
+            );
+        }
+    }
+}
+
+pub async fn send_json_with_header<T: Serialize>(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    payload: Option<T>,
+    header_name: &str,
+    header_value: &str,
+) -> (StatusCode, Value) {
+    let mut req = Request::builder().method(method).uri(uri);
+
+    let body = if let Some(data) = payload {
+        req = req.header("content-type", "application/json");
+        Body::from(serde_json::to_string(&data).unwrap())
+    } else {
+        Body::empty()
+    };
+
+    let req = req.header(header_name, header_value).body(body).unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    let status = resp.status();
+
+    let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body = String::from_utf8(body_bytes.to_vec()).unwrap();
+
     match serde_json::from_str(&body) {
         Ok(json) => (status, json),
         Err(_) => {
