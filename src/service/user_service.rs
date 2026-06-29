@@ -105,7 +105,7 @@ impl<R: UserRepository> UserService<R> {
         Ok(user)
     }
 
-    pub async fn list_users(&self, claims: &Claims) -> Result<Vec<User>, AppError> {
+    pub async fn list_users(&self, claims: &Claims) -> Result<Vec<PublicUser>, AppError> {
         let user = self
             .repo
             .find_user_by_username(&claims.sub)
@@ -118,7 +118,8 @@ impl<R: UserRepository> UserService<R> {
             ));
         }
 
-        self.repo.list_all_users().await
+        let users = self.repo.list_all_users().await?;
+        Ok(users.into_iter().map(PublicUser::from).collect())
     }
 
     pub async fn health_check(&self) -> Result<(), AppError> {
