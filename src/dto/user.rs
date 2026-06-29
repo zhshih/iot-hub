@@ -1,4 +1,4 @@
-use crate::domain::user::{PublicUser, User};
+use crate::domain::user::PublicUser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
@@ -23,7 +23,7 @@ pub struct HealthCheckResponse;
 
 #[derive(Serialize)]
 pub struct ListUsersResponse {
-    pub users: Vec<User>,
+    pub users: Vec<PublicUser>,
 }
 
 pub type SignupResponse = TokenResponse<String>;
