@@ -51,18 +51,9 @@ impl<R: ReadingRepository> ReadingService<R> {
         let from = from.map(truncate_to_seconds);
         let to = to.map(truncate_to_seconds);
         let cursor = cursor.map(truncate_to_seconds);
-        let paginated_result = self
-            .repo
+        self.repo
             .get_readings_filtered_paginated(device_id, from, to, cursor, limit)
-            .await?;
-
-        if paginated_result.data.is_empty() {
-            return Err(AppError::NotFound(
-                "No readings found for device in the specified range".to_string(),
-            ));
-        }
-
-        Ok(paginated_result)
+            .await
     }
 }
 
@@ -166,7 +157,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_readings_filtered_paginated_not_found() {
+    async fn test_get_readings_filtered_paginated_returns_empty_result() {
         let mut mock_repo = MockReadingRepository::new();
         let device_id = Uuid::new_v4();
 
@@ -184,8 +175,10 @@ mod tests {
 
         let result = service
             .get_readings_filtered_paginated(device_id, None, None, None, Some(5))
-            .await;
+            .await
+            .unwrap();
 
-        assert!(matches!(result, Err(AppError::NotFound(_))));
+        assert!(result.data.is_empty());
+        assert!(!result.has_more);
     }
 }

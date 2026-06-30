@@ -50,9 +50,7 @@ async fn test_post_reading_single() {
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
     let reading = json!({
-        "device_id": device_id,
         "arrived_timestamp": chrono::Utc::now().to_rfc3339(),
-        "processed_timestamp": chrono::Utc::now().to_rfc3339(),
         "reading_type": "Voltage",
         "value": 51.5,
     });
@@ -78,16 +76,12 @@ async fn test_post_readings_bulk() {
 
     let readings = json!([
         {
-            "device_id": device_id,
             "arrived_timestamp": chrono::Utc::now(),
-            "processed_timestamp": chrono::Utc::now(),
             "reading_type": "Temperature",
             "value": 23.5,
         },
         {
-            "device_id": device_id,
             "arrived_timestamp": chrono::Utc::now() + chrono::Duration::seconds(10),
-            "processed_timestamp": chrono::Utc::now() + chrono::Duration::seconds(10),
             "reading_type": "Temperature",
             "value": 29.0,
         }
@@ -122,9 +116,7 @@ async fn test_get_readings_with_query() {
 
     for i in 0..3 {
         let reading = json!({
-            "device_id": device_id,
             "arrived_timestamp": now + chrono::Duration::seconds(i),
-            "processed_timestamp": now + chrono::Duration::seconds(i),
             "reading_type": "Temperature",
             "value": 20.0 + i as f64,
         });
@@ -170,9 +162,7 @@ async fn test_get_latest_reading() {
     let now = chrono::Utc::now();
 
     let reading = json!({
-        "device_id": device_id,
         "arrived_timestamp": now,
-        "processed_timestamp": now,
         "reading_type": "Voltage",
         "value": 51.5,
     });
@@ -213,9 +203,7 @@ async fn test_get_readings_in_range() {
     let now = chrono::Utc::now();
 
     let reading = json!({
-        "device_id": device_id,
         "arrived_timestamp": now,
-        "processed_timestamp": now,
         "reading_type": "Voltage",
         "value": 51.5,
     });
@@ -266,7 +254,6 @@ async fn test_get_readings_pagination_multiple_pages() {
         println!("Posting reading with timestamp: {}", ts);
         let reading = json!({
             "arrived_timestamp": ts,
-            "processed_timestamp": ts,
             "reading_type": "Temperature",
             "value": 20.0 + i as f64,
         });

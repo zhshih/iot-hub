@@ -51,12 +51,7 @@ impl<R: DeviceRepository> DeviceService<R> {
     }
 
     pub async fn get_devices(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError> {
-        let devices = self.repo.list_devices_by_owner(owner_id).await?;
-        if devices.is_empty() {
-            return Err(AppError::NotFound("Devices not found".to_string()));
-        }
-
-        Ok(devices)
+        self.repo.list_devices_by_owner(owner_id).await
     }
 
     pub async fn delete_device(&self, id: Uuid, requester_id: Uuid) -> Result<(), AppError> {
@@ -220,7 +215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_devices_not_found() {
+    async fn test_get_devices_returns_empty_list() {
         let mut mock_repo = MockDeviceRepository::new();
         mock_repo
             .expect_list_devices_by_owner()
@@ -229,7 +224,7 @@ mod tests {
         let service = DeviceService::new(mock_repo);
         let result = service.get_devices(Uuid::new_v4()).await;
 
-        assert!(matches!(result, Err(AppError::NotFound(_))));
+        assert!(matches!(result, Ok(devices) if devices.is_empty()));
     }
 
     #[tokio::test]

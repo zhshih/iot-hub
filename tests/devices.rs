@@ -5,7 +5,6 @@ use common::{TestApp, cleanup_test_state, send_json, setup_test_state};
 use iot_hub::api::devices::routes;
 use serde_json::json;
 use serial_test::serial;
-use uuid::Uuid;
 
 const DEVICES_TABLE: &str = "devices";
 
@@ -37,8 +36,6 @@ async fn test_register_device() {
 
     let device = json!({
         "name": "My Device",
-        "owner_id": Uuid::new_v4(),
-        "registered_at": chrono::Utc::now(),
         "description": "integration test"
     });
 
@@ -61,8 +58,6 @@ async fn test_get_devices() {
     for i in 1..=3 {
         let device = json!({
             "name": format!("Test Device {}", i),
-            "owner_id": Uuid::new_v4(),
-            "registered_at": chrono::Utc::now(),
             "description": format!("Device number {}", i),
         });
 
@@ -89,8 +84,6 @@ async fn test_get_device() {
 
     let device = json!({
         "name": "Test Device 1",
-        "owner_id": Uuid::new_v4(),
-        "registered_at": chrono::Utc::now(),
         "description": null
     });
 
@@ -114,8 +107,6 @@ async fn test_delete_device() {
 
     let device = json!({
         "name": "Temp Device",
-        "owner_id": Uuid::new_v4(),
-        "registered_at": chrono::Utc::now(),
         "description": null
     });
 
