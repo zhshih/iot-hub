@@ -1,3 +1,4 @@
+use crate::error::{AppError, ValidationError};
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
 #[cfg(not(feature = "mock-auth"))]
@@ -6,12 +7,24 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::env::VarError;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Claims {
     pub exp: usize,
     pub iat: usize,
+    /// The authenticated user's id (as a UUID string), not their username.
     pub sub: String,
+}
+
+impl Claims {
+    pub fn user_id(&self) -> Result<Uuid, AppError> {
+        Uuid::parse_str(&self.sub).map_err(|_| {
+            AppError::ValidationError(ValidationError::InvalidInput(
+                "Invalid user id in token".to_string(),
+            ))
+        })
+    }
 }
 
 pub fn encode_jwt(id: String) -> Result<String, StatusCode> {

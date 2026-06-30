@@ -22,11 +22,11 @@ pub struct RegisteredDevice {
 }
 
 impl RegisteredDevice {
-    pub fn from_request(req: RegisterDeviceRequest) -> Self {
+    pub fn from_request(req: RegisterDeviceRequest, owner_id: Uuid) -> Self {
         Self {
             name: req.name,
             description: req.description,
-            owner_id: req.owner_id,
+            owner_id,
             registered_at: Utc::now(),
         }
     }

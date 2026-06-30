@@ -1,11 +1,15 @@
 mod common;
 
 use axum::{Router, http::StatusCode};
-use common::{TestApp, cleanup_test_state, send_json, send_request, setup_test_state};
+use common::{
+    TEST_DATABASE_URL, TestApp, cleanup_test_state, send_json, send_json_with_header,
+    send_request, setup_test_state,
+};
 use iot_hub::api::users::routes;
-use serde_json::Value;
 use serde_json::json;
 use serial_test::serial;
+use sqlx::PgPool;
+use uuid::Uuid;
 
 const USERS_TABLE: &str = "users";
 
@@ -89,7 +93,7 @@ async fn test_login() {
 async fn test_me() {
     let test_app = TestApp::new().await;
 
-    let _ = send_json(
+    let (_, signup_json) = send_json(
         test_app.app(),
         "POST",
         "/signup",
@@ -100,14 +104,17 @@ async fn test_me() {
         })),
     )
     .await;
+    let user_id = signup_json["data"]["user_id"]
+        .as_str()
+        .expect("user_id should be present in signup response");
 
-    let (status, body_str) = send_request::<()>(test_app.app(), "GET", "/me", None).await;
+    let (status, json) =
+        send_json_with_header::<()>(test_app.app(), "GET", "/me", None, "x-mock-user", user_id)
+            .await;
 
     assert_eq!(status, StatusCode::OK);
 
-    let body: Value = serde_json::from_str(&body_str).expect("Response should be valid JSON");
-
-    let username = body["data"]["user"]["username"]
+    let username = json["data"]["user"]["username"]
         .as_str()
         .expect("username should exist");
     assert_eq!(username, "test_user");
@@ -118,26 +125,37 @@ async fn test_me() {
 async fn test_list_users() {
     let test_app = TestApp::new().await;
 
-    let _ = send_json(
+    // list_users is Admin-only, and there's no signup-to-Admin API path,
+    // so seed an Admin user directly and authenticate as them via x-mock-user.
+    let pool = PgPool::connect(TEST_DATABASE_URL)
+        .await
+        .expect("failed to connect to test database");
+    let admin_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id, username, email, hashed_password, role, created_at)
+         VALUES ($1, $2, $3, $4, 'Admin', NOW())",
+    )
+    .bind(admin_id)
+    .bind("admin_fixture")
+    .bind("admin_fixture@example.com")
+    .bind("not-a-real-hash")
+    .execute(&pool)
+    .await
+    .expect("failed to seed admin fixture");
+
+    let (status, json) = send_json_with_header::<()>(
         test_app.app(),
-        "POST",
-        "/signup",
-        Some(json!({
-            "username": "test_user",
-            "email": "test_user@example.com",
-            "password": "password123"
-        })),
+        "GET",
+        "/",
+        None,
+        "x-mock-user",
+        &admin_id.to_string(),
     )
     .await;
 
-    let (status, body_str) = send_request::<()>(test_app.app(), "GET", "/", None).await;
-
     assert_eq!(status, StatusCode::OK);
 
-    let body: serde_json::Value =
-        serde_json::from_str(&body_str).expect("Response should be valid JSON");
-
-    let users = &body["data"]["users"];
+    let users = &json["data"]["users"];
     assert!(users.is_array(), "users should be an array");
     let users_array = users.as_array().unwrap();
     assert!(!users_array.is_empty(), "users array should not be empty");

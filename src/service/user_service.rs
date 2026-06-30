@@ -20,7 +20,7 @@ impl<R: UserRepository> UserService<R> {
         Self { repo }
     }
 
-    pub async fn signup(&self, payload: SignupUser) -> Result<String, AppError> {
+    pub async fn signup(&self, payload: SignupUser) -> Result<(String, Uuid), AppError> {
         if payload.username.is_empty() || payload.password.is_empty() || payload.email.is_empty() {
             return Err(AppError::MissingArgument(
                 "Username, email, and password are required".to_string(),
@@ -48,13 +48,13 @@ impl<R: UserRepository> UserService<R> {
 
         self.repo.insert_user(&user).await?;
 
-        let token = jwt::encode_jwt(payload.username).map_err(|_| {
+        let token = jwt::encode_jwt(user.id.to_string()).map_err(|_| {
             AppError::TokenError(TokenError::GenerationFailed(
                 "Failed to generate token".to_string(),
             ))
         })?;
 
-        Ok(token)
+        Ok((token, user.id))
     }
 
     pub async fn login(&self, payload: AuthRequest) -> Result<String, AppError> {
@@ -86,7 +86,7 @@ impl<R: UserRepository> UserService<R> {
             )));
         }
 
-        jwt::encode_jwt(user.username.clone()).map_err(|_| {
+        jwt::encode_jwt(user.id.to_string()).map_err(|_| {
             AppError::TokenError(TokenError::GenerationFailed(
                 "Failed to generate token".to_string(),
             ))
@@ -94,9 +94,10 @@ impl<R: UserRepository> UserService<R> {
     }
 
     pub async fn get_current_user_info(&self, claims: &Claims) -> Result<PublicUser, AppError> {
+        let user_id = claims.user_id()?;
         let user = self
             .repo
-            .find_user_by_username(&claims.sub)
+            .find_user_by_id(user_id)
             .await?
             .ok_or(AppError::NotFound("User not found".to_string()))?;
 
@@ -106,13 +107,14 @@ impl<R: UserRepository> UserService<R> {
     }
 
     pub async fn list_users(&self, claims: &Claims) -> Result<Vec<PublicUser>, AppError> {
+        let user_id = claims.user_id()?;
         let user = self
             .repo
-            .find_user_by_username(&claims.sub)
+            .find_user_by_id(user_id)
             .await?
             .ok_or(AppError::NotFound("User not found".to_string()))?;
 
-        if user.role != UserRole::Admin && user.role != UserRole::Operator {
+        if user.role != UserRole::Admin {
             return Err(AppError::ValidationError(
                 ValidationError::PermissionDenied("Insufficient permissions".to_string()),
             ));
@@ -148,6 +150,7 @@ mod tests {
         impl UserRepository for UserRepository {
             async fn insert_user(&self, user: &User) -> Result<(), AppError>;
             async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+            async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
         }
@@ -181,7 +184,7 @@ mod tests {
         let mut mock_repo = MockUserRepository::new();
         mock_repo.expect_insert_user().returning(|_| Ok(()));
         let service = UserService::new(mock_repo);
-        let token = service
+        let (token, _user_id) = service
             .signup(SignupUser {
                 username: "test".into(),
                 email: "test@example.com".into(),
@@ -260,16 +263,17 @@ mod tests {
     async fn test_get_current_user_info_should_return_info() {
         let user = make_test_user("jane", "pass", UserRole::Operator);
         let user_clone = user.clone();
+        let user_id = user.id;
 
         let mut mock_repo = MockUserRepository::new();
         mock_repo
-            .expect_find_user_by_username()
+            .expect_find_user_by_id()
             .returning(move |_| Ok(Some(user_clone.clone())));
 
         let service = UserService::new(mock_repo);
 
         let claims = Claims {
-            sub: user.username.clone(),
+            sub: user_id.to_string(),
             iat: 0,
             exp: 0,
         };
@@ -285,12 +289,10 @@ mod tests {
     #[tokio::test]
     async fn test_get_current_user_info_should_fail_if_not_found() {
         let mut mock_repo = MockUserRepository::new();
-        mock_repo
-            .expect_find_user_by_username()
-            .returning(|_| Ok(None));
+        mock_repo.expect_find_user_by_id().returning(|_| Ok(None));
         let service = UserService::new(mock_repo);
         let claims = Claims {
-            sub: "ghost".into(),
+            sub: Uuid::new_v4().to_string(),
             iat: 0,
             exp: 0,
         };
@@ -299,15 +301,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_current_user_info_should_fail_on_invalid_claims_sub() {
+        let mock_repo = MockUserRepository::new();
+        let service = UserService::new(mock_repo);
+        let claims = Claims {
+            sub: "not-a-uuid".into(),
+            iat: 0,
+            exp: 0,
+        };
+        let res = service.get_current_user_info(&claims).await;
+        assert!(matches!(
+            res,
+            Err(AppError::ValidationError(ValidationError::InvalidInput(_)))
+        ));
+    }
+
+    #[tokio::test]
     async fn test_list_users_should_return_for_admin() {
         let admin = make_test_user("admin", "pass", UserRole::Admin);
         let other = make_test_user("bob", "pass", UserRole::Operator);
+        let admin_id = admin.id;
         let mut mock_repo = MockUserRepository::new();
         let admin_clone = admin.clone();
         mock_repo
-            .expect_find_user_by_username()
-            .returning(move |username| {
-                if username == "admin" {
+            .expect_find_user_by_id()
+            .returning(move |id| {
+                if id == admin_id {
                     Ok(Some(admin_clone.clone()))
                 } else {
                     Ok(None)
@@ -321,7 +340,7 @@ mod tests {
         let service = UserService::new(mock_repo);
 
         let claims = Claims {
-            sub: "admin".into(),
+            sub: admin_id.to_string(),
             iat: 0,
             exp: 0,
         };
@@ -332,11 +351,12 @@ mod tests {
     #[tokio::test]
     async fn test_list_users_should_forbid() {
         let user = make_test_user("bob", "pass", UserRole::User);
+        let user_id = user.id;
         let mut mock_repo = MockUserRepository::new();
         mock_repo
-            .expect_find_user_by_username()
-            .returning(move |username| {
-                if username == "bob" {
+            .expect_find_user_by_id()
+            .returning(move |id| {
+                if id == user_id {
                     Ok(Some(user.clone()))
                 } else {
                     Ok(None)
@@ -347,7 +367,7 @@ mod tests {
         let service = UserService::new(mock_repo);
 
         let claims = Claims {
-            sub: "bob".into(),
+            sub: user_id.to_string(),
             iat: 0,
             exp: 0,
         };

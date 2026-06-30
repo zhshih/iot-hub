@@ -40,6 +40,12 @@ where
     }
 }
 
+/// Default caller identity for integration tests that never sign up a real
+/// user (e.g. devices/readings tests). Must be a valid UUID string since
+/// `claims.sub` is the caller's user id, not a username.
+#[cfg(feature = "mock-auth")]
+pub const DEFAULT_MOCK_USER_ID: &str = "00000000-0000-0000-0000-000000000001";
+
 #[cfg(feature = "mock-auth")]
 impl<S> FromRequestParts<S> for AuthUser
 where
@@ -52,7 +58,7 @@ where
             .headers
             .get("x-mock-user")
             .and_then(|h| h.to_str().ok())
-            .unwrap_or("test_user")
+            .unwrap_or(DEFAULT_MOCK_USER_ID)
             .to_string();
 
         Ok(AuthUser(Claims {

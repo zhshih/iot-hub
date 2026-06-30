@@ -26,12 +26,13 @@ pub fn routes() -> Router<AppState> {
 
 async fn register_device(
     State(state): State<AppState>,
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
     Json(payload): Json<RegisterDeviceRequest>,
 ) -> HandlerResult<RegisterDeviceResponse> {
+    let owner_id = claims.user_id()?;
     let service = DeviceService::new(state.db_pool.clone());
 
-    let device = RegisteredDevice::from_request(payload);
+    let device = RegisteredDevice::from_request(payload, owner_id);
     let id = service.register_device(device).await?;
 
     Ok(Json(ApiResponse::success(RegisterDeviceResponse {
@@ -40,35 +41,36 @@ async fn register_device(
 }
 
 async fn get_devices(
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
 ) -> HandlerResult<GetDevicesResponse> {
-    let service: DeviceService<sqlx::Pool<sqlx::Postgres>> =
-        DeviceService::new(state.db_pool.clone());
-    let devices = service.get_devices().await?;
+    let owner_id = claims.user_id()?;
+    let service = DeviceService::new(state.db_pool.clone());
+    let devices = service.get_devices(owner_id).await?;
 
-    println!("Devices fetched: {:?}", devices);
     Ok(Json(ApiResponse::success(GetDevicesResponse { devices })))
 }
 
 async fn get_device(
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> HandlerResult<GetDeviceResponse> {
+    let requester_id = claims.user_id()?;
     let service = DeviceService::new(state.db_pool.clone());
-    let device = service.get_device(id).await?;
+    let device = service.get_device(id, requester_id).await?;
 
     Ok(Json(ApiResponse::success(GetDeviceResponse { device })))
 }
 
 async fn delete_device(
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> HandlerResult<DeleteDeviceResponse> {
+    let requester_id = claims.user_id()?;
     let service = DeviceService::new(state.db_pool.clone());
-    service.delete_device(id).await?;
+    service.delete_device(id, requester_id).await?;
 
     Ok(Json(ApiResponse::success(DeleteDeviceResponse {
         device_id: id.to_string(),

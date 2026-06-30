@@ -3,11 +3,13 @@ use crate::{
     error::AppError,
 };
 use sqlx::PgPool;
+use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait UserRepository: Send + Sync {
     async fn insert_user(&self, user: &User) -> Result<(), AppError>;
     async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+    async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
     async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
     async fn health_check(&self) -> Result<bool, AppError>;
 }
@@ -40,6 +42,14 @@ impl UserRepository for PgPool {
             .fetch_optional(self)
             .await
             .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
+    }
+
+    async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError> {
+        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(self)
+            .await
+            .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", id)))
     }
 
     async fn list_all_users(&self) -> Result<Vec<User>, AppError> {
@@ -76,6 +86,7 @@ mod tests {
         impl UserRepository for UserRepository {
             async fn insert_user(&self, user: &User) -> Result<(), AppError>;
             async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
+            async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
         }
@@ -114,6 +125,30 @@ mod tests {
             .returning(|_| Ok(None));
 
         let result = mock_repo.find_user_by_username("ghost").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_user_by_id_found() {
+        let mut mock_repo = MockUserRepository::new();
+        let user = make_test_user("alice");
+        let user_id = user.id;
+
+        mock_repo
+            .expect_find_user_by_id()
+            .withf(move |id| *id == user_id)
+            .returning(move |_| Ok(Some(user.clone())));
+
+        let result = mock_repo.find_user_by_id(user_id).await.unwrap();
+        assert_eq!(result.unwrap().id, user_id);
+    }
+
+    #[tokio::test]
+    async fn test_find_user_by_id_not_found() {
+        let mut mock_repo = MockUserRepository::new();
+        mock_repo.expect_find_user_by_id().returning(|_| Ok(None));
+
+        let result = mock_repo.find_user_by_id(Uuid::new_v4()).await.unwrap();
         assert!(result.is_none());
     }
 
