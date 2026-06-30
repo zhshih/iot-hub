@@ -1,7 +1,5 @@
-mod common;
-
-use axum::{Router, http::StatusCode};
-use common::{TEST_DATABASE_URL, TestApp, cleanup_test_state, seed_device, send_json, setup_test_state};
+use crate::common::{TEST_DATABASE_URL, TestApp, seed_device, send_json};
+use axum::http::StatusCode;
 use iot_hub::api::readings::routes;
 use iot_hub::auth::extractor::DEFAULT_MOCK_USER_ID;
 use serde_json::json;
@@ -10,18 +8,6 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 const READINGS_TABLE: &str = "readings";
-
-impl TestApp {
-    async fn new() -> Self {
-        let app_state = setup_test_state(READINGS_TABLE).await;
-        let app = routes().with_state(app_state);
-        Self { app }
-    }
-
-    fn app(&self) -> &Router {
-        &self.app
-    }
-}
 
 /// Readings endpoints now require the device to exist and be owned by the
 /// caller. These tests authenticate as mock-auth's default identity (no
@@ -34,19 +20,10 @@ async fn seed_default_owned_device(device_id: Uuid) {
     seed_device(&pool, device_id, owner_id).await;
 }
 
-impl Drop for TestApp {
-    fn drop(&mut self) {
-        let fut = async {
-            cleanup_test_state(READINGS_TABLE).await;
-        };
-        tokio::spawn(fut);
-    }
-}
-
 #[tokio::test]
 #[serial]
 async fn test_post_reading_single() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
     let reading = json!({
@@ -70,7 +47,7 @@ async fn test_post_reading_single() {
 #[tokio::test]
 #[serial]
 async fn test_post_readings_bulk() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
 
@@ -109,7 +86,7 @@ async fn test_post_readings_bulk() {
 #[tokio::test]
 #[serial]
 async fn test_get_readings_with_query() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
@@ -156,7 +133,7 @@ async fn test_get_readings_with_query() {
 #[tokio::test]
 #[serial]
 async fn test_get_latest_reading() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
@@ -197,7 +174,7 @@ async fn test_get_latest_reading() {
 #[tokio::test]
 #[serial]
 async fn test_get_readings_in_range() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
@@ -245,7 +222,7 @@ async fn test_get_readings_in_range() {
 #[tokio::test]
 #[serial]
 async fn test_get_readings_pagination_multiple_pages() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(READINGS_TABLE, routes()).await;
     let device_id = Uuid::new_v4();
     seed_default_owned_device(device_id).await;
 

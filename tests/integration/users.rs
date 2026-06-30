@@ -1,10 +1,7 @@
-mod common;
-
-use axum::{Router, http::StatusCode};
-use common::{
-    TEST_DATABASE_URL, TestApp, cleanup_test_state, send_json, send_json_with_header,
-    send_request, setup_test_state,
+use crate::common::{
+    TEST_DATABASE_URL, TestApp, send_json, send_json_with_header, send_request,
 };
+use axum::http::StatusCode;
 use iot_hub::api::users::routes;
 use serde_json::json;
 use serial_test::serial;
@@ -13,31 +10,10 @@ use uuid::Uuid;
 
 const USERS_TABLE: &str = "users";
 
-impl TestApp {
-    async fn new() -> Self {
-        let app_state = setup_test_state(USERS_TABLE).await;
-        let app = routes().with_state(app_state);
-        Self { app }
-    }
-
-    fn app(&self) -> &Router {
-        &self.app
-    }
-}
-
-impl Drop for TestApp {
-    fn drop(&mut self) {
-        let fut = async {
-            cleanup_test_state(USERS_TABLE).await;
-        };
-        tokio::spawn(fut);
-    }
-}
-
 #[tokio::test]
 #[serial]
 async fn test_signup() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
 
     let payload = json!({
         "username": "alice",
@@ -56,7 +32,7 @@ async fn test_signup() {
 #[tokio::test]
 #[serial]
 async fn test_login() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
 
     let _ = send_json(
         test_app.app(),
@@ -91,7 +67,7 @@ async fn test_login() {
 #[tokio::test]
 #[serial]
 async fn test_me() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
 
     let (_, signup_json) = send_json(
         test_app.app(),
@@ -123,7 +99,7 @@ async fn test_me() {
 #[tokio::test]
 #[serial]
 async fn test_list_users() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
 
     // list_users is Admin-only, and there's no signup-to-Admin API path,
     // so seed an Admin user directly and authenticate as them via x-mock-user.
@@ -164,7 +140,7 @@ async fn test_list_users() {
 #[tokio::test]
 #[serial]
 async fn test_health_check() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
 
     let (status, body_str) = send_request::<()>(test_app.app(), "GET", "/health", None).await;
     assert_eq!(status, StatusCode::OK);
