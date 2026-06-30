@@ -1,38 +1,15 @@
-mod common;
-
-use axum::{Router, http::StatusCode};
-use common::{TestApp, cleanup_test_state, send_json, setup_test_state};
+use crate::common::{TestApp, send_json};
+use axum::http::StatusCode;
 use iot_hub::api::devices::routes;
 use serde_json::json;
 use serial_test::serial;
 
 const DEVICES_TABLE: &str = "devices";
 
-impl TestApp {
-    async fn new() -> Self {
-        let app_state = setup_test_state(DEVICES_TABLE).await;
-        let app = routes().with_state(app_state);
-        Self { app }
-    }
-
-    fn app(&self) -> &Router {
-        &self.app
-    }
-}
-
-impl Drop for TestApp {
-    fn drop(&mut self) {
-        let fut = async {
-            cleanup_test_state(DEVICES_TABLE).await;
-        };
-        tokio::spawn(fut);
-    }
-}
-
 #[tokio::test]
 #[serial]
 async fn test_register_device() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(DEVICES_TABLE, routes()).await;
 
     let device = json!({
         "name": "My Device",
@@ -53,7 +30,7 @@ async fn test_register_device() {
 #[tokio::test]
 #[serial]
 async fn test_get_devices() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(DEVICES_TABLE, routes()).await;
 
     for i in 1..=3 {
         let device = json!({
@@ -80,7 +57,7 @@ async fn test_get_devices() {
 #[tokio::test]
 #[serial]
 async fn test_get_device() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(DEVICES_TABLE, routes()).await;
 
     let device = json!({
         "name": "Test Device 1",
@@ -103,7 +80,7 @@ async fn test_get_device() {
 #[tokio::test]
 #[serial]
 async fn test_delete_device() {
-    let test_app = TestApp::new().await;
+    let test_app = TestApp::new(DEVICES_TABLE, routes()).await;
 
     let device = json!({
         "name": "Temp Device",

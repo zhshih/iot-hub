@@ -12,8 +12,32 @@ use uuid::Uuid;
 
 pub const TEST_DATABASE_URL: &str =
     "postgres://test_user:test_password@localhost/iot_monitoring_test";
+
 pub struct TestApp {
     pub app: Router,
+    table: &'static str,
+}
+
+impl TestApp {
+    pub async fn new(table: &'static str, routes: Router<AppState>) -> Self {
+        let app_state = setup_test_state(table).await;
+        let app = routes.with_state(app_state);
+        Self { app, table }
+    }
+
+    pub fn app(&self) -> &Router {
+        &self.app
+    }
+}
+
+impl Drop for TestApp {
+    fn drop(&mut self) {
+        let table = self.table;
+        let fut = async move {
+            cleanup_test_state(table).await;
+        };
+        tokio::spawn(fut);
+    }
 }
 
 pub fn setup_env() {
@@ -62,11 +86,6 @@ pub async fn cleanup_test_state(table: &str) {
 /// Inserts a device row directly, bypassing the API. Needed by tests that
 /// exercise readings endpoints, which now require the device to exist and
 /// be owned by the caller before accepting/returning any readings for it.
-///
-/// `common.rs` is recompiled per integration-test binary (each declares its
-/// own `mod common;`), so a helper used by only one binary looks dead to the
-/// others — hence the blanket allow here and on `send_json_with_header`.
-#[allow(dead_code)]
 pub async fn seed_device(pool: &PgPool, device_id: Uuid, owner_id: Uuid) {
     sqlx::query(
         "INSERT INTO devices (id, name, description, owner_id, registered_at, is_active)
@@ -124,7 +143,6 @@ pub async fn send_json<T: Serialize>(
     }
 }
 
-#[allow(dead_code)]
 pub async fn send_json_with_header<T: Serialize>(
     app: &Router,
     method: &str,
