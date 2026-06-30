@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  DATABASE_URL: postgres://postgres:password@localhost/iot_monitoring
+  JWT_SECRET: ci-test-secret
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install rustfmt and clippy
+        # rustup auto-installs the 1.90 toolchain pinned by rust-toolchain.toml
+        # on first use, but components aren't included by default like they
+        # are for the runner's preinstalled stable toolchain.
+        run: rustup component add rustfmt clippy
+
+      - name: Start Postgres
+        run: docker compose up -d
+
+      - name: Wait for Postgres
+        run: |
+          for i in $(seq 1 30); do
+            docker compose exec -T db pg_isready -U postgres && break
+            sleep 1
+          done
+
+      - name: Install sqlx-cli
+        # Pinned to match the sqlx crate version in Cargo.toml -- sqlx-cli
+        # latest (0.9.x) requires a newer rustc than the 1.90 this repo pins.
+        run: cargo install sqlx-cli --version "=0.8.6" --no-default-features --features postgres
+
+      - name: Run migrations
+        run: sqlx migrate run
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build
+
+      - name: Unit tests
+        run: cargo test --lib
+
+      - name: Integration tests
+        run: cargo test --test integration

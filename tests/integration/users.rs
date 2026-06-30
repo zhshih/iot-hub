@@ -1,6 +1,4 @@
-use crate::common::{
-    TEST_DATABASE_URL, TestApp, send_json, send_json_with_header, send_request,
-};
+use crate::common::{TEST_DATABASE_URL, TestApp, send_json, send_json_with_header, send_request};
 use axum::http::StatusCode;
 use iot_hub::api::users::routes;
 use serde_json::json;
