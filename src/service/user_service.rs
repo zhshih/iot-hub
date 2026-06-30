@@ -37,12 +37,17 @@ impl<R: UserRepository> UserService<R> {
             })?
             .to_string();
 
+        let role = match std::env::var("ADMIN_BOOTSTRAP_EMAIL") {
+            Ok(bootstrap_email) if bootstrap_email == payload.email => UserRole::Admin,
+            _ => UserRole::Operator,
+        };
+
         let user = User {
             id: Uuid::new_v4(),
             username: payload.username.clone(),
             email: payload.email.clone(),
             hashed_password,
-            role: UserRole::Operator,
+            role,
             created_at: Utc::now(),
         };
 
@@ -141,6 +146,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
+    use serial_test::serial;
     use uuid::Uuid;
 
     mock! {
@@ -179,10 +185,15 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(env_vars)]
     async fn test_signup_should_create_user() {
         setup_env();
+        unsafe { std::env::remove_var("ADMIN_BOOTSTRAP_EMAIL") };
         let mut mock_repo = MockUserRepository::new();
-        mock_repo.expect_insert_user().returning(|_| Ok(()));
+        mock_repo
+            .expect_insert_user()
+            .withf(|user| user.role == UserRole::Operator)
+            .returning(|_| Ok(()));
         let service = UserService::new(mock_repo);
         let (token, _user_id) = service
             .signup(SignupUser {
@@ -194,6 +205,32 @@ mod tests {
             .unwrap();
 
         assert!(!token.is_empty());
+    }
+
+    #[tokio::test]
+    #[serial(env_vars)]
+    async fn test_signup_should_grant_admin_for_bootstrap_email() {
+        setup_env();
+        unsafe { std::env::set_var("ADMIN_BOOTSTRAP_EMAIL", "admin@example.com") };
+
+        let mut mock_repo = MockUserRepository::new();
+        mock_repo
+            .expect_insert_user()
+            .withf(|user| user.role == UserRole::Admin)
+            .returning(|_| Ok(()));
+        let service = UserService::new(mock_repo);
+
+        let result = service
+            .signup(SignupUser {
+                username: "bootstrap_admin".into(),
+                email: "admin@example.com".into(),
+                password: "pass123".into(),
+            })
+            .await;
+
+        unsafe { std::env::remove_var("ADMIN_BOOTSTRAP_EMAIL") };
+
+        assert!(result.is_ok());
     }
 
     #[tokio::test]
@@ -212,7 +249,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(env_vars)]
     async fn test_login_should_succeed_with_correct_credentials() {
+        setup_env();
         let user = make_test_user("john", "secret", UserRole::Operator);
         let mut mock_repo = MockUserRepository::new();
         mock_repo

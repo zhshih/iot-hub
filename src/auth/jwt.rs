@@ -81,7 +81,7 @@ mod tests {
     use std::env;
 
     #[test]
-    #[serial]
+    #[serial(env_vars)]
     fn test_load_jwt_secret_missing() {
         unsafe { env::remove_var("JWT_SECRET") };
         let result = load_jwt_secret();
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(env_vars)]
     fn test_load_jwt_secret_present() {
         unsafe {
             env::set_var("JWT_SECRET", "mysecret");
@@ -99,6 +99,7 @@ mod tests {
     }
 
     #[test]
+    #[serial(env_vars)]
     fn test_encode_and_decode_jwt() {
         unsafe {
             env::set_var("JWT_SECRET", "supersecret");
