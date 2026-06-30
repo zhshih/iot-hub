@@ -1,6 +1,8 @@
 # IoT Hub  
 *A Web Backend for IoT Device Management — built with Axum, Tower, and Rust.*
 
+[![CI](https://github.com/zhshih/iot-hub/actions/workflows/ci.yml/badge.svg)](https://github.com/zhshih/iot-hub/actions/workflows/ci.yml)
+
 ## Overview
 
 **IoT Hub** is a web-based backend service designed to manage IoT devices, users, and telemetry readings in a structured and observable way.  
@@ -37,9 +39,9 @@ This project is primarily built to explore and showcase:
 - Docker (for Postgres via `docker-compose.yml`)
 - sqlx-cli installed for database migrations (with the correct database feature)
 
->Tip: To install sqlx-cli for PostgreSQL:
+>Tip: To install sqlx-cli for PostgreSQL (pinned to 0.8.6 — newer releases require a newer rustc than the 1.90 this repo pins):
 > ```bash
-> cargo install sqlx-cli --no-default-features --features postgres
+> cargo install sqlx-cli --version "=0.8.6" --no-default-features --features postgres
 >```
 
 ### Configure environment
