@@ -49,7 +49,7 @@ pub async fn cleanup_test_state(table: &str) {
 
     let database_url = TEST_DATABASE_URL;
 
-    let pool = sqlx::PgPool::connect(&std::env::var(database_url).unwrap())
+    let pool = sqlx::PgPool::connect(database_url)
         .await
         .expect("failed to connect for cleanup");
 
