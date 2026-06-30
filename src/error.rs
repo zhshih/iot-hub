@@ -56,9 +56,10 @@ impl From<AppError> for ApiError {
     fn from(err: AppError) -> Self {
         match err {
             AppError::ValidationError(ve) => match ve {
-                ValidationError::InvalidInput(msg)
-                | ValidationError::MissingField(msg)
-                | ValidationError::PermissionDenied(msg) => ApiError::BadRequest(msg),
+                ValidationError::InvalidInput(msg) | ValidationError::MissingField(msg) => {
+                    ApiError::BadRequest(msg)
+                }
+                ValidationError::PermissionDenied(msg) => ApiError::Forbidden(msg),
                 ValidationError::ParsedError(msg) => ApiError::InternalServerError(msg),
             },
             AppError::DatabaseError(msg) | AppError::EnvVarError(msg) => {
