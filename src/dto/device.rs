@@ -1,11 +1,9 @@
 use crate::domain::device::Device;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct RegisterDeviceRequest {
     pub name: String,
-    pub owner_id: Uuid,
     pub description: Option<String>,
 }
 

@@ -7,7 +7,12 @@ pub trait DeviceRepository: Send + Sync {
     async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
     async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
     async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
-    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError>;
+    async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError>;
+    async fn delete_device_by_id_and_owner(
+        &self,
+        id: Uuid,
+        owner_id: Uuid,
+    ) -> Result<u64, AppError>;
 }
 
 #[async_trait::async_trait]
@@ -65,13 +70,36 @@ impl DeviceRepository for PgPool {
         Ok(devices)
     }
 
-    async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError> {
+    async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError> {
+        let devices = sqlx::query_as!(
+            Device,
+            r#"
+            SELECT id, name, description, owner_id, registered_at, is_active
+            FROM devices
+            WHERE owner_id = $1
+            ORDER BY registered_at DESC
+            "#,
+            owner_id
+        )
+        .fetch_all(self)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch devices: {}", e)))?;
+
+        Ok(devices)
+    }
+
+    async fn delete_device_by_id_and_owner(
+        &self,
+        id: Uuid,
+        owner_id: Uuid,
+    ) -> Result<u64, AppError> {
         let result = sqlx::query!(
             r#"
             DELETE FROM devices
-            WHERE id = $1
+            WHERE id = $1 AND owner_id = $2
             "#,
-            id
+            id,
+            owner_id
         )
         .execute(self)
         .await
@@ -97,7 +125,8 @@ mod tests {
             async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
             async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
             async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
-            async fn delete_device_by_id(&self, id: Uuid) -> Result<u64, AppError>;
+            async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError>;
+            async fn delete_device_by_id_and_owner(&self, id: Uuid, owner_id: Uuid) -> Result<u64, AppError>;
         }
     }
 
@@ -177,10 +206,37 @@ mod tests {
     async fn test_delete_device_success() {
         let mut mock_repo = MockDeviceRepository::new();
 
-        mock_repo.expect_delete_device_by_id().returning(|_| Ok(1));
+        mock_repo
+            .expect_delete_device_by_id_and_owner()
+            .returning(|_, _| Ok(1));
 
-        let result = mock_repo.delete_device_by_id(Uuid::new_v4()).await;
+        let result = mock_repo
+            .delete_device_by_id_and_owner(Uuid::new_v4(), Uuid::new_v4())
+            .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_devices_by_owner_returns_only_owned() {
+        let mut mock_repo = MockDeviceRepository::new();
+        let owner_id = Uuid::new_v4();
+        let devices = vec![Device {
+            id: Uuid::new_v4(),
+            name: "Owned Device".to_string(),
+            description: None,
+            owner_id,
+            registered_at: Utc::now(),
+            is_active: true,
+        }];
+
+        mock_repo
+            .expect_list_devices_by_owner()
+            .withf(move |id| *id == owner_id)
+            .returning(move |_| Ok(devices.clone()));
+
+        let result = mock_repo.list_devices_by_owner(owner_id).await.unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].owner_id, owner_id);
     }
 }

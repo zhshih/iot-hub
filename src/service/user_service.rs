@@ -15,14 +15,6 @@ pub struct UserService<R: UserRepository> {
     repo: R,
 }
 
-fn parse_user_id(claims: &Claims) -> Result<Uuid, AppError> {
-    Uuid::parse_str(&claims.sub).map_err(|_| {
-        AppError::ValidationError(ValidationError::InvalidInput(
-            "Invalid user id in token".to_string(),
-        ))
-    })
-}
-
 impl<R: UserRepository> UserService<R> {
     pub fn new(repo: R) -> Self {
         Self { repo }
@@ -102,7 +94,7 @@ impl<R: UserRepository> UserService<R> {
     }
 
     pub async fn get_current_user_info(&self, claims: &Claims) -> Result<PublicUser, AppError> {
-        let user_id = parse_user_id(claims)?;
+        let user_id = claims.user_id()?;
         let user = self
             .repo
             .find_user_by_id(user_id)
@@ -115,7 +107,7 @@ impl<R: UserRepository> UserService<R> {
     }
 
     pub async fn list_users(&self, claims: &Claims) -> Result<Vec<PublicUser>, AppError> {
-        let user_id = parse_user_id(claims)?;
+        let user_id = claims.user_id()?;
         let user = self
             .repo
             .find_user_by_id(user_id)
