@@ -1,5 +1,6 @@
 use crate::domain::user::PublicUser;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct SignupRequest {
@@ -11,6 +12,12 @@ pub struct SignupRequest {
 #[derive(Serialize)]
 pub struct TokenResponse<T> {
     pub token: T,
+}
+
+#[derive(Serialize)]
+pub struct SignupResponse {
+    pub token: String,
+    pub user_id: Uuid,
 }
 
 #[derive(Serialize)]
@@ -26,5 +33,4 @@ pub struct ListUsersResponse {
     pub users: Vec<PublicUser>,
 }
 
-pub type SignupResponse = TokenResponse<String>;
 pub type LoginResponse = TokenResponse<String>;

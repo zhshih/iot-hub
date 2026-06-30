@@ -34,9 +34,12 @@ async fn signup(
     let service = UserService::new(state.db_pool.clone());
 
     let user = SignupUser::from_request(payload);
-    let token = service.signup(user).await?;
+    let (token, user_id) = service.signup(user).await?;
 
-    Ok(Json(ApiResponse::success(SignupResponse { token })))
+    Ok(Json(ApiResponse::success(SignupResponse {
+        token,
+        user_id,
+    })))
 }
 
 async fn login(

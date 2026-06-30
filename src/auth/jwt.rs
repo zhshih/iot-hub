@@ -11,6 +11,7 @@ use std::env::VarError;
 pub struct Claims {
     pub exp: usize,
     pub iat: usize,
+    /// The authenticated user's id (as a UUID string), not their username.
     pub sub: String,
 }
 

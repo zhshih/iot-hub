@@ -6,7 +6,6 @@ use common::{
     send_request, setup_test_state,
 };
 use iot_hub::api::users::routes;
-use serde_json::Value;
 use serde_json::json;
 use serial_test::serial;
 use sqlx::PgPool;
@@ -94,7 +93,7 @@ async fn test_login() {
 async fn test_me() {
     let test_app = TestApp::new().await;
 
-    let _ = send_json(
+    let (_, signup_json) = send_json(
         test_app.app(),
         "POST",
         "/signup",
@@ -105,14 +104,17 @@ async fn test_me() {
         })),
     )
     .await;
+    let user_id = signup_json["data"]["user_id"]
+        .as_str()
+        .expect("user_id should be present in signup response");
 
-    let (status, body_str) = send_request::<()>(test_app.app(), "GET", "/me", None).await;
+    let (status, json) =
+        send_json_with_header::<()>(test_app.app(), "GET", "/me", None, "x-mock-user", user_id)
+            .await;
 
     assert_eq!(status, StatusCode::OK);
 
-    let body: Value = serde_json::from_str(&body_str).expect("Response should be valid JSON");
-
-    let username = body["data"]["user"]["username"]
+    let username = json["data"]["user"]["username"]
         .as_str()
         .expect("username should exist");
     assert_eq!(username, "test_user");
@@ -128,13 +130,13 @@ async fn test_list_users() {
     let pool = PgPool::connect(TEST_DATABASE_URL)
         .await
         .expect("failed to connect to test database");
-    let admin_username = "admin_fixture";
+    let admin_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO users (id, username, email, hashed_password, role, created_at)
          VALUES ($1, $2, $3, $4, 'Admin', NOW())",
     )
-    .bind(Uuid::new_v4())
-    .bind(admin_username)
+    .bind(admin_id)
+    .bind("admin_fixture")
     .bind("admin_fixture@example.com")
     .bind("not-a-real-hash")
     .execute(&pool)
@@ -147,7 +149,7 @@ async fn test_list_users() {
         "/",
         None,
         "x-mock-user",
-        admin_username,
+        &admin_id.to_string(),
     )
     .await;
 
