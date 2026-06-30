@@ -362,15 +362,13 @@ mod tests {
         let admin_id = admin.id;
         let mut mock_repo = MockUserRepository::new();
         let admin_clone = admin.clone();
-        mock_repo
-            .expect_find_user_by_id()
-            .returning(move |id| {
-                if id == admin_id {
-                    Ok(Some(admin_clone.clone()))
-                } else {
-                    Ok(None)
-                }
-            });
+        mock_repo.expect_find_user_by_id().returning(move |id| {
+            if id == admin_id {
+                Ok(Some(admin_clone.clone()))
+            } else {
+                Ok(None)
+            }
+        });
         let admin_clone = admin.clone();
         mock_repo
             .expect_list_all_users()
@@ -392,15 +390,13 @@ mod tests {
         let user = make_test_user("bob", "pass", UserRole::User);
         let user_id = user.id;
         let mut mock_repo = MockUserRepository::new();
-        mock_repo
-            .expect_find_user_by_id()
-            .returning(move |id| {
-                if id == user_id {
-                    Ok(Some(user.clone()))
-                } else {
-                    Ok(None)
-                }
-            });
+        mock_repo.expect_find_user_by_id().returning(move |id| {
+            if id == user_id {
+                Ok(Some(user.clone()))
+            } else {
+                Ok(None)
+            }
+        });
         mock_repo.expect_list_all_users().returning(|| Ok(vec![]));
 
         let service = UserService::new(mock_repo);
