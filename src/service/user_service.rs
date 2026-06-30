@@ -141,6 +141,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
+    use serial_test::serial;
     use uuid::Uuid;
 
     mock! {
@@ -179,6 +180,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(env_vars)]
     async fn test_signup_should_create_user() {
         setup_env();
         let mut mock_repo = MockUserRepository::new();
@@ -212,7 +214,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial(env_vars)]
     async fn test_login_should_succeed_with_correct_credentials() {
+        setup_env();
         let user = make_test_user("john", "secret", UserRole::Operator);
         let mut mock_repo = MockUserRepository::new();
         mock_repo
