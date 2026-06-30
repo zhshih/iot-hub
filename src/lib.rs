@@ -97,7 +97,6 @@ fn create_app(state: AppState) -> Router {
                         method = %request.method(),
                         uri = %request.uri(),
                         version = ?request.version(),
-                        headers = ?request.headers(),
                     )
                 })
                 .on_response(
