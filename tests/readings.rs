@@ -1,10 +1,12 @@
 mod common;
 
 use axum::{Router, http::StatusCode};
-use common::{TestApp, cleanup_test_state, send_json, setup_test_state};
+use common::{TEST_DATABASE_URL, TestApp, cleanup_test_state, seed_device, send_json, setup_test_state};
 use iot_hub::api::readings::routes;
+use iot_hub::auth::extractor::DEFAULT_MOCK_USER_ID;
 use serde_json::json;
 use serial_test::serial;
+use sqlx::PgPool;
 use uuid::Uuid;
 
 const READINGS_TABLE: &str = "readings";
@@ -21,6 +23,17 @@ impl TestApp {
     }
 }
 
+/// Readings endpoints now require the device to exist and be owned by the
+/// caller. These tests authenticate as mock-auth's default identity (no
+/// x-mock-user header), so seed each test's device under that same id.
+async fn seed_default_owned_device(device_id: Uuid) {
+    let pool = PgPool::connect(TEST_DATABASE_URL)
+        .await
+        .expect("failed to connect to test database");
+    let owner_id = Uuid::parse_str(DEFAULT_MOCK_USER_ID).unwrap();
+    seed_device(&pool, device_id, owner_id).await;
+}
+
 impl Drop for TestApp {
     fn drop(&mut self) {
         let fut = async {
@@ -35,6 +48,7 @@ impl Drop for TestApp {
 async fn test_post_reading_single() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
     let reading = json!({
         "device_id": device_id,
         "arrived_timestamp": chrono::Utc::now().to_rfc3339(),
@@ -60,6 +74,7 @@ async fn test_post_reading_single() {
 async fn test_post_readings_bulk() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
 
     let readings = json!([
         {
@@ -102,6 +117,7 @@ async fn test_post_readings_bulk() {
 async fn test_get_readings_with_query() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
     for i in 0..3 {
@@ -150,6 +166,7 @@ async fn test_get_readings_with_query() {
 async fn test_get_latest_reading() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
     let reading = json!({
@@ -192,6 +209,7 @@ async fn test_get_latest_reading() {
 async fn test_get_readings_in_range() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
     let reading = json!({
@@ -241,6 +259,7 @@ async fn test_get_readings_in_range() {
 async fn test_get_readings_pagination_multiple_pages() {
     let test_app = TestApp::new().await;
     let device_id = Uuid::new_v4();
+    seed_default_owned_device(device_id).await;
 
     for i in 0..5 {
         let ts = chrono::Utc::now() + chrono::Duration::seconds(i as i64);

@@ -5,7 +5,7 @@ use crate::{
     dto::reading::{
         GetPaginatedReadingResponse, GetReadingResponse, PostReadingResponse, ReadingRequest,
     },
-    service::reading_service::ReadingService,
+    service::{device_service::DeviceService, reading_service::ReadingService},
     {app_state::AppState, domain::reading::Reading},
 };
 use axum::{
@@ -51,9 +51,13 @@ pub fn routes() -> Router<AppState> {
 async fn post_readings(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
     Json(payload): Json<OneOrMany<ReadingRequest>>,
 ) -> HandlerResult<PostReadingResponse> {
+    let requester_id = claims.user_id()?;
+    let device_service = DeviceService::new(state.db_pool.clone());
+    device_service.get_device(id, requester_id).await?;
+
     let service = ReadingService::new(state.db_pool.clone());
     let requests = payload.into_vec();
 
@@ -75,8 +79,12 @@ async fn get_readings(
     State(state): State<AppState>,
     Path(device_id): Path<Uuid>,
     Query(params): Query<ReadingQuery>,
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
 ) -> HandlerResult<GetPaginatedReadingResponse> {
+    let requester_id = claims.user_id()?;
+    let device_service = DeviceService::new(state.db_pool.clone());
+    device_service.get_device(device_id, requester_id).await?;
+
     let service = ReadingService::new(state.db_pool.clone());
 
     let from = params.from.and_then(|ts| Utc.timestamp_opt(ts, 0).single());
@@ -100,8 +108,12 @@ async fn get_readings(
 async fn get_latest_readings(
     State(state): State<AppState>,
     Path(device_id): Path<Uuid>,
-    AuthUser(_user): AuthUser,
+    AuthUser(claims): AuthUser,
 ) -> HandlerResult<GetReadingResponse> {
+    let requester_id = claims.user_id()?;
+    let device_service = DeviceService::new(state.db_pool.clone());
+    device_service.get_device(device_id, requester_id).await?;
+
     let service = ReadingService::new(state.db_pool.clone());
     let result = service
         .get_readings_filtered_paginated(device_id, None, None, None, Some(1))
