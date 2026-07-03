@@ -15,6 +15,10 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
+/// `User` is reserved for a future, more restrictive permission tier (e.g. read-only
+/// access) and is not yet produced or checked anywhere in the codebase — `signup()`
+/// only ever assigns `Admin` (via `ADMIN_BOOTSTRAP_EMAIL`) or `Operator`. Only Admin
+/// vs. non-Admin is currently enforced (see `UserService::list_users`).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type)]
 #[sqlx(type_name = "TEXT")]
 pub enum UserRole {
