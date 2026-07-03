@@ -37,26 +37,46 @@ impl UserRepository for PgPool {
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1")
-            .bind(username)
-            .fetch_optional(self)
-            .await
-            .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+            FROM users
+            WHERE username = $1
+            "#,
+            username
+        )
+        .fetch_optional(self)
+        .await
+        .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
     }
 
     async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError> {
-        sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(self)
-            .await
-            .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", id)))
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+            FROM users
+            WHERE id = $1
+            "#,
+            id
+        )
+        .fetch_optional(self)
+        .await
+        .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", id)))
     }
 
     async fn list_all_users(&self) -> Result<Vec<User>, AppError> {
-        sqlx::query_as::<_, User>("SELECT * FROM users")
-            .fetch_all(self)
-            .await
-            .map_err(|e| AppError::DatabaseError(format!("Failed to fetch users: {}", e)))
+        sqlx::query_as!(
+            User,
+            r#"
+            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+            FROM users
+            "#
+        )
+        .fetch_all(self)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch users: {}", e)))
     }
 
     async fn health_check(&self) -> Result<bool, AppError> {

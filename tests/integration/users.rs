@@ -133,6 +133,12 @@ async fn test_list_users() {
     assert!(users.is_array(), "users should be an array");
     let users_array = users.as_array().unwrap();
     assert!(!users_array.is_empty(), "users array should not be empty");
+
+    let admin_entry = users_array
+        .iter()
+        .find(|u| u["username"] == "admin_fixture")
+        .expect("seeded admin_fixture user should be present in the response");
+    assert_eq!(admin_entry["role"].as_str(), Some("Admin"));
 }
 
 #[tokio::test]
