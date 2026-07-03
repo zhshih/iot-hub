@@ -48,12 +48,17 @@ pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
 }
 
 pub fn init_tracing() {
-    let fmt_layer = fmt::layer().pretty().with_target(false);
+    let json_enabled = env::var("LOG_FORMAT")
+        .map(|v| v.eq_ignore_ascii_case("json"))
+        .unwrap_or(false);
 
-    let json_layer = fmt::layer()
-        .json()
-        .with_current_span(true)
-        .with_span_list(true);
+    let fmt_layer = (!json_enabled).then(|| fmt::layer().pretty().with_target(false));
+    let json_layer = json_enabled.then(|| {
+        fmt::layer()
+            .json()
+            .with_current_span(true)
+            .with_span_list(true)
+    });
 
     tracing_subscriber::registry()
         .with(EnvFilter::from_default_env())
