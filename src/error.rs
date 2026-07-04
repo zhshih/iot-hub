@@ -74,3 +74,99 @@ impl From<AppError> for ApiError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validation_invalid_input_maps_to_bad_request() {
+        let err = AppError::ValidationError(ValidationError::InvalidInput("bad input".into()));
+        match ApiError::from(err) {
+            ApiError::BadRequest(msg) => assert_eq!(msg, "bad input"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validation_missing_field_maps_to_bad_request() {
+        let err = AppError::ValidationError(ValidationError::MissingField("name".into()));
+        match ApiError::from(err) {
+            ApiError::BadRequest(msg) => assert_eq!(msg, "name"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validation_permission_denied_maps_to_forbidden() {
+        let err =
+            AppError::ValidationError(ValidationError::PermissionDenied("not allowed".into()));
+        match ApiError::from(err) {
+            ApiError::Forbidden(msg) => assert_eq!(msg, "not allowed"),
+            other => panic!("expected Forbidden, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validation_parsed_error_maps_to_internal_server_error() {
+        let err = AppError::ValidationError(ValidationError::ParsedError("bad hash".into()));
+        match ApiError::from(err) {
+            ApiError::InternalServerError(msg) => assert_eq!(msg, "bad hash"),
+            other => panic!("expected InternalServerError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn database_error_maps_to_internal_server_error() {
+        let err = AppError::DatabaseError("connection lost".into());
+        match ApiError::from(err) {
+            ApiError::InternalServerError(msg) => assert_eq!(msg, "connection lost"),
+            other => panic!("expected InternalServerError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn env_var_error_maps_to_internal_server_error() {
+        let err = AppError::EnvVarError("JWT_SECRET missing".into());
+        match ApiError::from(err) {
+            ApiError::InternalServerError(msg) => assert_eq!(msg, "JWT_SECRET missing"),
+            other => panic!("expected InternalServerError, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn not_found_maps_to_not_found() {
+        let err = AppError::NotFound("device".into());
+        match ApiError::from(err) {
+            ApiError::NotFound(msg) => assert_eq!(msg, "device"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_argument_maps_to_bad_request() {
+        let err = AppError::MissingArgument("username".into());
+        match ApiError::from(err) {
+            ApiError::BadRequest(msg) => assert_eq!(msg, "username"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn token_error_maps_to_unauthorized() {
+        let err = AppError::TokenError(TokenError::Expired);
+        match ApiError::from(err) {
+            ApiError::Unauthorized(msg) => assert_eq!(msg, TokenError::Expired.to_string()),
+            other => panic!("expected Unauthorized, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn health_check_failed_maps_to_internal_server_error() {
+        let err = AppError::HealthCheckFailed;
+        match ApiError::from(err) {
+            ApiError::InternalServerError(msg) => assert_eq!(msg, "Health check failed"),
+            other => panic!("expected InternalServerError, got {other:?}"),
+        }
+    }
+}
