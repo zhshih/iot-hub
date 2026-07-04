@@ -4,11 +4,11 @@ use axum::{
     http::{Request, StatusCode},
 };
 use iot_hub::app_state::AppState;
+use iot_hub::domain::ids::{DeviceId, UserId};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
 use tower::ServiceExt;
-use uuid::Uuid;
 
 pub const TEST_DATABASE_URL: &str =
     "postgres://test_user:test_password@localhost/iot_monitoring_test";
@@ -86,7 +86,7 @@ pub async fn cleanup_test_state(table: &str) {
 /// Inserts a device row directly, bypassing the API. Needed by tests that
 /// exercise readings endpoints, which now require the device to exist and
 /// be owned by the caller before accepting/returning any readings for it.
-pub async fn seed_device(pool: &PgPool, device_id: Uuid, owner_id: Uuid) {
+pub async fn seed_device(pool: &PgPool, device_id: DeviceId, owner_id: UserId) {
     sqlx::query(
         "INSERT INTO devices (id, name, description, owner_id, registered_at, is_active)
          VALUES ($1, 'seeded-device', NULL, $2, NOW(), TRUE)",

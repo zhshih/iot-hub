@@ -1,3 +1,4 @@
+use crate::domain::ids::UserId;
 use crate::error::{AppError, ValidationError};
 use axum::http::StatusCode;
 use chrono::{Duration, Utc};
@@ -7,7 +8,7 @@ use jsonwebtoken::{EncodingKey, Header, encode};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::env::VarError;
-use uuid::Uuid;
+use std::str::FromStr;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct Claims {
@@ -18,8 +19,8 @@ pub struct Claims {
 }
 
 impl Claims {
-    pub fn user_id(&self) -> Result<Uuid, AppError> {
-        Uuid::parse_str(&self.sub).map_err(|_| {
+    pub fn user_id(&self) -> Result<UserId, AppError> {
+        UserId::from_str(&self.sub).map_err(|_| {
             AppError::ValidationError(ValidationError::InvalidInput(
                 "Invalid user id in token".to_string(),
             ))
@@ -27,7 +28,7 @@ impl Claims {
     }
 }
 
-pub fn encode_jwt(id: String) -> Result<String, StatusCode> {
+pub fn encode_jwt(id: UserId) -> Result<String, StatusCode> {
     let now = Utc::now();
     let expiration = now
         .checked_add_signed(Duration::hours(24))
@@ -38,7 +39,7 @@ pub fn encode_jwt(id: String) -> Result<String, StatusCode> {
     let claims = Claims {
         exp: expiration,
         iat,
-        sub: id,
+        sub: id.to_string(),
     };
 
     let secret = load_jwt_secret()?;
@@ -106,10 +107,10 @@ mod tests {
         }
         #[cfg(not(feature = "mock-auth"))]
         {
-            let user_id = "user123".to_string();
-            let token = encode_jwt(user_id.clone()).expect("Failed to encode JWT");
+            let user_id = UserId::new();
+            let token = encode_jwt(user_id).expect("Failed to encode JWT");
             let decoded = decode_jwt(&token).expect("Failed to decode JWT");
-            assert_eq!(decoded.claims.sub, user_id);
+            assert_eq!(decoded.claims.sub, user_id.to_string());
         }
     }
 }

@@ -2,6 +2,7 @@ use super::error::ApiError;
 use crate::{
     api::response::{ApiResponse, HandlerResult},
     auth::extractor::AuthUser,
+    domain::ids::DeviceId,
     dto::reading::{
         GetPaginatedReadingResponse, GetReadingResponse, PostReadingResponse, ReadingRequest,
     },
@@ -15,7 +16,6 @@ use axum::{
 };
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct ReadingQuery {
@@ -50,7 +50,7 @@ pub fn routes() -> Router<AppState> {
 
 async fn post_readings(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<DeviceId>,
     AuthUser(claims): AuthUser,
     Json(payload): Json<OneOrMany<ReadingRequest>>,
 ) -> HandlerResult<PostReadingResponse> {
@@ -77,7 +77,7 @@ async fn post_readings(
 
 async fn get_readings(
     State(state): State<AppState>,
-    Path(device_id): Path<Uuid>,
+    Path(device_id): Path<DeviceId>,
     Query(params): Query<ReadingQuery>,
     AuthUser(claims): AuthUser,
 ) -> HandlerResult<GetPaginatedReadingResponse> {
@@ -107,7 +107,7 @@ async fn get_readings(
 
 async fn get_latest_readings(
     State(state): State<AppState>,
-    Path(device_id): Path<Uuid>,
+    Path(device_id): Path<DeviceId>,
     AuthUser(claims): AuthUser,
 ) -> HandlerResult<GetReadingResponse> {
     let requester_id = claims.user_id()?;

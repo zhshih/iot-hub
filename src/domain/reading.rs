@@ -1,13 +1,13 @@
+use crate::domain::ids::DeviceId;
 use crate::dto::reading::ReadingRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 use std::fmt;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
 pub struct Reading {
-    pub device_id: Uuid,
+    pub device_id: DeviceId,
     pub arrived_timestamp: DateTime<Utc>,
     pub processed_timestamp: DateTime<Utc>,
     pub reading_type: ReadingType,
@@ -29,7 +29,7 @@ impl fmt::Display for Reading {
 }
 
 impl Reading {
-    pub fn from_request(req: ReadingRequest, device_id: Uuid) -> Self {
+    pub fn from_request(req: ReadingRequest, device_id: DeviceId) -> Self {
         Self {
             device_id,
             arrived_timestamp: req.arrived_timestamp,

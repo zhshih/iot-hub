@@ -1,17 +1,21 @@
-use crate::{domain::device::Device, error::AppError};
+use crate::{
+    domain::device::Device,
+    domain::ids::{DeviceId, UserId},
+    error::AppError,
+};
 use sqlx::PgPool;
 use uuid::Uuid;
 
 #[async_trait::async_trait]
 pub trait DeviceRepository: Send + Sync {
     async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
-    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+    async fn find_device_by_id(&self, id: DeviceId) -> Result<Option<Device>, AppError>;
     async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
-    async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError>;
+    async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
     async fn delete_device_by_id_and_owner(
         &self,
-        id: Uuid,
-        owner_id: Uuid,
+        id: DeviceId,
+        owner_id: UserId,
     ) -> Result<u64, AppError>;
 }
 
@@ -23,10 +27,10 @@ impl DeviceRepository for PgPool {
             INSERT INTO devices (id, name, description, owner_id, registered_at, is_active)
             VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            device.id,
+            Uuid::from(device.id),
             device.name,
             device.description,
-            device.owner_id,
+            Uuid::from(device.owner_id),
             device.registered_at,
             device.is_active,
         )
@@ -37,7 +41,7 @@ impl DeviceRepository for PgPool {
         Ok(())
     }
 
-    async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError> {
+    async fn find_device_by_id(&self, id: DeviceId) -> Result<Option<Device>, AppError> {
         let device = sqlx::query_as!(
             Device,
             r#"
@@ -45,7 +49,7 @@ impl DeviceRepository for PgPool {
             FROM devices
             WHERE id = $1
             "#,
-            id
+            Uuid::from(id)
         )
         .fetch_optional(self)
         .await
@@ -70,7 +74,7 @@ impl DeviceRepository for PgPool {
         Ok(devices)
     }
 
-    async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError> {
+    async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError> {
         let devices = sqlx::query_as!(
             Device,
             r#"
@@ -79,7 +83,7 @@ impl DeviceRepository for PgPool {
             WHERE owner_id = $1
             ORDER BY registered_at DESC
             "#,
-            owner_id
+            Uuid::from(owner_id)
         )
         .fetch_all(self)
         .await
@@ -90,16 +94,16 @@ impl DeviceRepository for PgPool {
 
     async fn delete_device_by_id_and_owner(
         &self,
-        id: Uuid,
-        owner_id: Uuid,
+        id: DeviceId,
+        owner_id: UserId,
     ) -> Result<u64, AppError> {
         let result = sqlx::query!(
             r#"
             DELETE FROM devices
             WHERE id = $1 AND owner_id = $2
             "#,
-            id,
-            owner_id
+            Uuid::from(id),
+            Uuid::from(owner_id)
         )
         .execute(self)
         .await
@@ -112,10 +116,10 @@ impl DeviceRepository for PgPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ids::{DeviceId, UserId};
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
-    use uuid::Uuid;
 
     mock! {
         pub DeviceRepository {}
@@ -123,10 +127,10 @@ mod tests {
         #[async_trait]
         impl DeviceRepository for DeviceRepository {
             async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
-            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+            async fn find_device_by_id(&self, id: DeviceId) -> Result<Option<Device>, AppError>;
             async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
-            async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError>;
-            async fn delete_device_by_id_and_owner(&self, id: Uuid, owner_id: Uuid) -> Result<u64, AppError>;
+            async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
+            async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
         }
     }
 
@@ -135,10 +139,10 @@ mod tests {
         let mut mock_repo = MockDeviceRepository::new();
 
         let device = Device {
-            id: Uuid::new_v4(),
+            id: DeviceId::new(),
             name: "Mocked Device".to_string(),
             description: Some("From mock".to_string()),
-            owner_id: Uuid::new_v4(),
+            owner_id: UserId::new(),
             registered_at: Utc::now(),
             is_active: true,
         };
@@ -147,7 +151,7 @@ mod tests {
             .expect_find_device_by_id()
             .returning(move |_| Ok(Some(device.clone())));
 
-        let found = mock_repo.find_device_by_id(Uuid::new_v4()).await.unwrap();
+        let found = mock_repo.find_device_by_id(DeviceId::new()).await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().name, "Mocked Device");
     }
@@ -158,18 +162,18 @@ mod tests {
 
         let devices = vec![
             Device {
-                id: Uuid::new_v4(),
+                id: DeviceId::new(),
                 name: "Device 1".to_string(),
                 description: None,
-                owner_id: Uuid::new_v4(),
+                owner_id: UserId::new(),
                 registered_at: Utc::now(),
                 is_active: true,
             },
             Device {
-                id: Uuid::new_v4(),
+                id: DeviceId::new(),
                 name: "Device 2".to_string(),
                 description: None,
-                owner_id: Uuid::new_v4(),
+                owner_id: UserId::new(),
                 registered_at: Utc::now(),
                 is_active: false,
             },
@@ -190,10 +194,10 @@ mod tests {
         mock_repo.expect_insert_device().returning(|_| Ok(()));
 
         let device = Device {
-            id: Uuid::new_v4(),
+            id: DeviceId::new(),
             name: "Insert Test".to_string(),
             description: None,
-            owner_id: Uuid::new_v4(),
+            owner_id: UserId::new(),
             registered_at: Utc::now(),
             is_active: true,
         };
@@ -211,7 +215,7 @@ mod tests {
             .returning(|_, _| Ok(1));
 
         let result = mock_repo
-            .delete_device_by_id_and_owner(Uuid::new_v4(), Uuid::new_v4())
+            .delete_device_by_id_and_owner(DeviceId::new(), UserId::new())
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1);
@@ -220,9 +224,9 @@ mod tests {
     #[tokio::test]
     async fn test_list_devices_by_owner_returns_only_owned() {
         let mut mock_repo = MockDeviceRepository::new();
-        let owner_id = Uuid::new_v4();
+        let owner_id = UserId::new();
         let devices = vec![Device {
-            id: Uuid::new_v4(),
+            id: DeviceId::new(),
             name: "Owned Device".to_string(),
             description: None,
             owner_id,

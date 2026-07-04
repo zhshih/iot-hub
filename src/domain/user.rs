@@ -1,13 +1,13 @@
+use crate::domain::ids::UserId;
 use crate::dto::user::SignupRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 use std::fmt;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
-    pub id: Uuid,
+    pub id: UserId,
     pub username: String,
     pub email: String,
     pub hashed_password: String,
@@ -56,7 +56,7 @@ impl SignupUser {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PublicUser {
-    pub id: Uuid,
+    pub id: UserId,
     pub username: String,
     pub email: String,
     pub role: UserRole,
