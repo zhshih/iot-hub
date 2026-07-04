@@ -1,4 +1,5 @@
 use crate::{
+    domain::ids::UserId,
     domain::user::{User, UserRole},
     error::AppError,
 };
@@ -9,7 +10,7 @@ use uuid::Uuid;
 pub trait UserRepository: Send + Sync {
     async fn insert_user(&self, user: &User) -> Result<(), AppError>;
     async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
-    async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
+    async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
     async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
     async fn health_check(&self) -> Result<bool, AppError>;
 }
@@ -22,7 +23,7 @@ impl UserRepository for PgPool {
             INSERT INTO users (id, username, email, hashed_password, role, created_at)
             VALUES ($1, $2, $3, $4, $5, $6)
             "#,
-            user.id,
+            Uuid::from(user.id),
             user.username,
             user.email,
             user.hashed_password,
@@ -51,7 +52,7 @@ impl UserRepository for PgPool {
         .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
     }
 
-    async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError> {
+    async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError> {
         sqlx::query_as!(
             User,
             r#"
@@ -59,7 +60,7 @@ impl UserRepository for PgPool {
             FROM users
             WHERE id = $1
             "#,
-            id
+            Uuid::from(id)
         )
         .fetch_optional(self)
         .await
@@ -92,12 +93,12 @@ impl UserRepository for PgPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ids::UserId;
     use crate::domain::user::User;
     use crate::domain::user::UserRole;
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
-    use uuid::Uuid;
 
     mock! {
         pub UserRepository {}
@@ -106,7 +107,7 @@ mod tests {
         impl UserRepository for UserRepository {
             async fn insert_user(&self, user: &User) -> Result<(), AppError>;
             async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
-            async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
+            async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
         }
@@ -114,7 +115,7 @@ mod tests {
 
     fn make_test_user(username: &str) -> User {
         User {
-            id: Uuid::new_v4(),
+            id: UserId::new(),
             username: username.into(),
             email: format!("{}@example.com", username),
             hashed_password: "hashed".into(),
@@ -168,7 +169,7 @@ mod tests {
         let mut mock_repo = MockUserRepository::new();
         mock_repo.expect_find_user_by_id().returning(|_| Ok(None));
 
-        let result = mock_repo.find_user_by_id(Uuid::new_v4()).await.unwrap();
+        let result = mock_repo.find_user_by_id(UserId::new()).await.unwrap();
         assert!(result.is_none());
     }
 

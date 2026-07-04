@@ -1,4 +1,5 @@
 use crate::{
+    domain::ids::DeviceId,
     domain::reading::{Reading, ReadingType},
     error::AppError,
 };
@@ -16,15 +17,15 @@ pub struct PaginatedResult<T> {
 
 #[async_trait::async_trait]
 pub trait ReadingRepository: Send + Sync {
-    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), AppError>;
+    async fn insert_reading(&self, device_id: DeviceId, reading: &Reading) -> Result<(), AppError>;
     async fn insert_readings(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         readings: &[Reading],
     ) -> Result<(u64, DateTime<Utc>), AppError>;
     async fn get_readings_filtered_paginated(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         from: Option<DateTime<Utc>>,
         to: Option<DateTime<Utc>>,
         cursor: Option<DateTime<Utc>>,
@@ -34,13 +35,13 @@ pub trait ReadingRepository: Send + Sync {
 
 #[async_trait::async_trait]
 impl ReadingRepository for PgPool {
-    async fn insert_reading(&self, device_id: Uuid, reading: &Reading) -> Result<(), AppError> {
+    async fn insert_reading(&self, device_id: DeviceId, reading: &Reading) -> Result<(), AppError> {
         sqlx::query!(
             r#"
             INSERT INTO readings (device_id, arrived_timestamp, processed_timestamp, reading_type, value)
             VALUES ($1, $2, $3, $4, $5)
             "#,
-            device_id,
+            Uuid::from(device_id),
             reading.arrived_timestamp,
             reading.processed_timestamp,
             reading.reading_type as ReadingType,
@@ -55,7 +56,7 @@ impl ReadingRepository for PgPool {
 
     async fn insert_readings(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         readings: &[Reading],
     ) -> Result<(u64, DateTime<Utc>), AppError> {
         if readings.is_empty() {
@@ -83,7 +84,7 @@ impl ReadingRepository for PgPool {
 
     async fn get_readings_filtered_paginated(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         from: Option<DateTime<Utc>>,
         to: Option<DateTime<Utc>>,
         cursor: Option<DateTime<Utc>>,
@@ -129,22 +130,22 @@ impl ReadingRepository for PgPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ids::DeviceId;
     use crate::domain::reading::ReadingType;
     use async_trait::async_trait;
     use chrono::{Duration, Utc};
     use mockall::mock;
-    use uuid::Uuid;
 
     mock! {
         pub ReadingRepository {}
 
         #[async_trait]
         impl ReadingRepository for ReadingRepository {
-            async fn insert_reading(&self, device_id: Uuid,reading: &Reading) -> Result<(), AppError>;
-            async fn insert_readings(&self, device_id: Uuid,readings: &[Reading]) -> Result<(u64, DateTime<Utc>), AppError>;
+            async fn insert_reading(&self, device_id: DeviceId,reading: &Reading) -> Result<(), AppError>;
+            async fn insert_readings(&self, device_id: DeviceId,readings: &[Reading]) -> Result<(u64, DateTime<Utc>), AppError>;
             async fn get_readings_filtered_paginated(
                 &self,
-                device_id: Uuid,
+                device_id: DeviceId,
                 from: Option<DateTime<Utc>>,
                 to: Option<DateTime<Utc>>,
                 cursor: Option<DateTime<Utc>>,
@@ -153,7 +154,7 @@ mod tests {
         }
     }
 
-    fn sample_reading(device_id: Uuid, offset_secs: i64) -> Reading {
+    fn sample_reading(device_id: DeviceId, offset_secs: i64) -> Reading {
         Reading {
             device_id,
             arrived_timestamp: Utc::now() + Duration::seconds(offset_secs),
@@ -170,7 +171,7 @@ mod tests {
             .expect_insert_reading()
             .returning(|_device_id, _reading| Ok(()));
 
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
         let reading = sample_reading(device_id, 0);
 
         let result = mock_repo.insert_reading(device_id, &reading).await;
@@ -185,7 +186,7 @@ mod tests {
             .expect_insert_readings()
             .returning(|_device_id, _reading| Ok((1, Utc::now())));
 
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
         let readings = vec![sample_reading(device_id, 0), sample_reading(device_id, 10)];
 
         let result = mock_repo.insert_readings(device_id, &readings).await;
@@ -200,7 +201,7 @@ mod tests {
     async fn test_get_readings_filtered_paginated_success() {
         let mut mock_repo = MockReadingRepository::new();
 
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
 
         let r1 = sample_reading(device_id, -30);
         let r2 = sample_reading(device_id, -20);
@@ -237,7 +238,7 @@ mod tests {
     async fn test_get_readings_filtered_paginated_empty() {
         let mut mock_repo = MockReadingRepository::new();
 
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
 
         mock_repo
             .expect_get_readings_filtered_paginated()

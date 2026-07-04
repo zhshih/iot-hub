@@ -2,21 +2,22 @@ use crate::common::{TEST_DATABASE_URL, TestApp, seed_device, send_json};
 use axum::http::StatusCode;
 use iot_hub::api::readings::routes;
 use iot_hub::auth::extractor::DEFAULT_MOCK_USER_ID;
+use iot_hub::domain::ids::{DeviceId, UserId};
 use serde_json::json;
 use serial_test::serial;
 use sqlx::PgPool;
-use uuid::Uuid;
+use std::str::FromStr;
 
 const READINGS_TABLE: &str = "readings";
 
 /// Readings endpoints now require the device to exist and be owned by the
 /// caller. These tests authenticate as mock-auth's default identity (no
 /// x-mock-user header), so seed each test's device under that same id.
-async fn seed_default_owned_device(device_id: Uuid) {
+async fn seed_default_owned_device(device_id: DeviceId) {
     let pool = PgPool::connect(TEST_DATABASE_URL)
         .await
         .expect("failed to connect to test database");
-    let owner_id = Uuid::parse_str(DEFAULT_MOCK_USER_ID).unwrap();
+    let owner_id = UserId::from_str(DEFAULT_MOCK_USER_ID).unwrap();
     seed_device(&pool, device_id, owner_id).await;
 }
 
@@ -24,7 +25,7 @@ async fn seed_default_owned_device(device_id: Uuid) {
 #[serial]
 async fn test_post_reading_single() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
     let reading = json!({
         "arrived_timestamp": chrono::Utc::now().to_rfc3339(),
@@ -48,7 +49,7 @@ async fn test_post_reading_single() {
 #[serial]
 async fn test_post_readings_bulk() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
 
     let readings = json!([
@@ -87,7 +88,7 @@ async fn test_post_readings_bulk() {
 #[serial]
 async fn test_get_readings_with_query() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
@@ -134,7 +135,7 @@ async fn test_get_readings_with_query() {
 #[serial]
 async fn test_get_latest_reading() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
@@ -175,7 +176,7 @@ async fn test_get_latest_reading() {
 #[serial]
 async fn test_get_readings_in_range() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
     let now = chrono::Utc::now();
 
@@ -223,7 +224,7 @@ async fn test_get_readings_in_range() {
 #[serial]
 async fn test_get_readings_pagination_multiple_pages() {
     let test_app = TestApp::new(READINGS_TABLE, routes()).await;
-    let device_id = Uuid::new_v4();
+    let device_id = DeviceId::new();
     seed_default_owned_device(device_id).await;
 
     for i in 0..5 {

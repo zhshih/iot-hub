@@ -1,9 +1,9 @@
 use crate::{
     domain::device::{Device, RegisteredDevice},
+    domain::ids::{DeviceId, UserId},
     error::AppError,
     repository::device_repo::DeviceRepository,
 };
-use uuid::Uuid;
 
 pub struct DeviceService<R: DeviceRepository> {
     repo: R,
@@ -15,13 +15,13 @@ impl<R: DeviceRepository> DeviceService<R> {
     }
 
     pub async fn register_device(&self, payload: RegisteredDevice) -> Result<String, AppError> {
-        if payload.name.is_empty() || payload.owner_id == Uuid::nil() {
+        if payload.name.is_empty() || payload.owner_id == UserId::nil() {
             return Err(AppError::MissingArgument(
                 "Device name and owner ID are required".to_string(),
             ));
         }
 
-        let id = Uuid::new_v4();
+        let id = DeviceId::new();
         let device = Device {
             id,
             name: payload.name.clone(),
@@ -36,7 +36,7 @@ impl<R: DeviceRepository> DeviceService<R> {
         Ok(id.to_string())
     }
 
-    pub async fn get_device(&self, id: Uuid, requester_id: Uuid) -> Result<Device, AppError> {
+    pub async fn get_device(&self, id: DeviceId, requester_id: UserId) -> Result<Device, AppError> {
         let device = self
             .repo
             .find_device_by_id(id)
@@ -50,11 +50,11 @@ impl<R: DeviceRepository> DeviceService<R> {
         Ok(device)
     }
 
-    pub async fn get_devices(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError> {
+    pub async fn get_devices(&self, owner_id: UserId) -> Result<Vec<Device>, AppError> {
         self.repo.list_devices_by_owner(owner_id).await
     }
 
-    pub async fn delete_device(&self, id: Uuid, requester_id: Uuid) -> Result<(), AppError> {
+    pub async fn delete_device(&self, id: DeviceId, requester_id: UserId) -> Result<(), AppError> {
         let affected = self
             .repo
             .delete_device_by_id_and_owner(id, requester_id)
@@ -74,9 +74,9 @@ impl<R: DeviceRepository> DeviceService<R> {
 mod tests {
     use super::*;
     use crate::domain::device::{Device, RegisteredDevice};
+    use crate::domain::ids::{DeviceId, UserId};
     use async_trait::async_trait;
     use mockall::mock;
-    use uuid::Uuid;
 
     mock! {
         pub DeviceRepository {}
@@ -84,19 +84,19 @@ mod tests {
         #[async_trait]
         impl DeviceRepository for DeviceRepository {
             async fn insert_device(&self, device: &Device) -> Result<(), AppError>;
-            async fn find_device_by_id(&self, id: Uuid) -> Result<Option<Device>, AppError>;
+            async fn find_device_by_id(&self, id: DeviceId) -> Result<Option<Device>, AppError>;
             async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
-            async fn list_devices_by_owner(&self, owner_id: Uuid) -> Result<Vec<Device>, AppError>;
-            async fn delete_device_by_id_and_owner(&self, id: Uuid, owner_id: Uuid) -> Result<u64, AppError>;
+            async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
+            async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
         }
     }
 
     fn make_test_device() -> Device {
         Device {
-            id: Uuid::new_v4(),
+            id: DeviceId::new(),
             name: "Test Device".into(),
             description: Some("Description".into()),
-            owner_id: Uuid::new_v4(),
+            owner_id: UserId::new(),
             registered_at: chrono::Utc::now(),
             is_active: true,
         }
@@ -106,7 +106,7 @@ mod tests {
         RegisteredDevice {
             name: "New Device".into(),
             description: Some("Description".into()),
-            owner_id: Uuid::new_v4(),
+            owner_id: UserId::new(),
             registered_at: chrono::Utc::now(),
         }
     }
@@ -134,7 +134,7 @@ mod tests {
         let bad_payload = RegisteredDevice {
             name: "".into(),
             description: None,
-            owner_id: Uuid::nil(),
+            owner_id: UserId::nil(),
             registered_at: chrono::Utc::now(),
         };
 
@@ -174,7 +174,7 @@ mod tests {
         mock_repo.expect_find_device_by_id().returning(|_| Ok(None));
 
         let service = DeviceService::new(mock_repo);
-        let result = service.get_device(Uuid::new_v4(), Uuid::new_v4()).await;
+        let result = service.get_device(DeviceId::new(), UserId::new()).await;
 
         assert!(matches!(result, Err(AppError::NotFound(_))));
     }
@@ -191,7 +191,7 @@ mod tests {
             .returning(move |_| Ok(Some(device_for_closure.clone())));
 
         let service = DeviceService::new(mock_repo);
-        let other_user_id = Uuid::new_v4();
+        let other_user_id = UserId::new();
         let result = service.get_device(expected_id, other_user_id).await;
 
         assert!(matches!(result, Err(AppError::NotFound(_))));
@@ -222,7 +222,7 @@ mod tests {
             .returning(|_| Ok(vec![]));
 
         let service = DeviceService::new(mock_repo);
-        let result = service.get_devices(Uuid::new_v4()).await;
+        let result = service.get_devices(UserId::new()).await;
 
         assert!(matches!(result, Ok(devices) if devices.is_empty()));
     }
@@ -235,7 +235,7 @@ mod tests {
             .returning(|_, _| Ok(1));
 
         let service = DeviceService::new(mock_repo);
-        let result = service.delete_device(Uuid::new_v4(), Uuid::new_v4()).await;
+        let result = service.delete_device(DeviceId::new(), UserId::new()).await;
 
         assert!(result.is_ok());
     }
@@ -248,7 +248,7 @@ mod tests {
             .returning(|_, _| Ok(0));
 
         let service = DeviceService::new(mock_repo);
-        let result = service.delete_device(Uuid::new_v4(), Uuid::new_v4()).await;
+        let result = service.delete_device(DeviceId::new(), UserId::new()).await;
 
         match result {
             Err(AppError::NotFound(msg)) => {

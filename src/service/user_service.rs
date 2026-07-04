@@ -1,5 +1,6 @@
 use crate::{
     auth::jwt::{self, Claims},
+    domain::ids::UserId,
     domain::user::{PublicUser, SignupUser, User, UserRole},
     dto::auth::AuthRequest,
     error::{AppError, TokenError, ValidationError},
@@ -9,7 +10,6 @@ use crate::{
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use chrono::Utc;
 use password_hash::{SaltString, rand_core::OsRng};
-use uuid::Uuid;
 
 pub struct UserService<R: UserRepository> {
     repo: R,
@@ -20,7 +20,7 @@ impl<R: UserRepository> UserService<R> {
         Self { repo }
     }
 
-    pub async fn signup(&self, payload: SignupUser) -> Result<(String, Uuid), AppError> {
+    pub async fn signup(&self, payload: SignupUser) -> Result<(String, UserId), AppError> {
         if payload.username.is_empty() || payload.password.is_empty() || payload.email.is_empty() {
             return Err(AppError::MissingArgument(
                 "Username, email, and password are required".to_string(),
@@ -43,7 +43,7 @@ impl<R: UserRepository> UserService<R> {
         };
 
         let user = User {
-            id: Uuid::new_v4(),
+            id: UserId::new(),
             username: payload.username.clone(),
             email: payload.email.clone(),
             hashed_password,
@@ -53,7 +53,7 @@ impl<R: UserRepository> UserService<R> {
 
         self.repo.insert_user(&user).await?;
 
-        let token = jwt::encode_jwt(user.id.to_string()).map_err(|_| {
+        let token = jwt::encode_jwt(user.id).map_err(|_| {
             AppError::TokenError(TokenError::GenerationFailed(
                 "Failed to generate token".to_string(),
             ))
@@ -91,7 +91,7 @@ impl<R: UserRepository> UserService<R> {
             )));
         }
 
-        jwt::encode_jwt(user.id.to_string()).map_err(|_| {
+        jwt::encode_jwt(user.id).map_err(|_| {
             AppError::TokenError(TokenError::GenerationFailed(
                 "Failed to generate token".to_string(),
             ))
@@ -142,12 +142,12 @@ impl<R: UserRepository> UserService<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::ids::UserId;
     use crate::domain::user::{User, UserRole};
     use async_trait::async_trait;
     use chrono::Utc;
     use mockall::mock;
     use serial_test::serial;
-    use uuid::Uuid;
 
     mock! {
         pub UserRepository {}
@@ -156,7 +156,7 @@ mod tests {
         impl UserRepository for UserRepository {
             async fn insert_user(&self, user: &User) -> Result<(), AppError>;
             async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError>;
-            async fn find_user_by_id(&self, id: Uuid) -> Result<Option<User>, AppError>;
+            async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
         }
@@ -175,7 +175,7 @@ mod tests {
             .unwrap()
             .to_string();
         User {
-            id: Uuid::new_v4(),
+            id: UserId::new(),
             username: username.into(),
             email: format!("{}@example.com", username),
             hashed_password,
@@ -331,7 +331,7 @@ mod tests {
         mock_repo.expect_find_user_by_id().returning(|_| Ok(None));
         let service = UserService::new(mock_repo);
         let claims = Claims {
-            sub: Uuid::new_v4().to_string(),
+            sub: UserId::new().to_string(),
             iat: 0,
             exp: 0,
         };

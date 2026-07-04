@@ -1,9 +1,8 @@
 use crate::{
-    domain::reading::Reading, error::AppError, repository::reading_repo::ReadingRepository,
-    truncate_to_seconds,
+    domain::ids::DeviceId, domain::reading::Reading, error::AppError,
+    repository::reading_repo::ReadingRepository, truncate_to_seconds,
 };
 use chrono::{DateTime, Utc};
-use uuid::Uuid;
 
 pub struct ReadingService<R: ReadingRepository> {
     repo: R,
@@ -11,7 +10,7 @@ pub struct ReadingService<R: ReadingRepository> {
 
 pub struct PostResult {
     pub inserted: u64,
-    pub device_id: Option<Uuid>,
+    pub device_id: Option<DeviceId>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -22,10 +21,10 @@ impl<R: ReadingRepository> ReadingService<R> {
 
     pub async fn post_readings(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         readings: Vec<Reading>,
     ) -> Result<PostResult, AppError> {
-        if device_id == Uuid::nil() {
+        if device_id == DeviceId::nil() {
             return Err(AppError::MissingArgument(
                 "Device ID is required".to_string(),
             ));
@@ -42,7 +41,7 @@ impl<R: ReadingRepository> ReadingService<R> {
 
     pub async fn get_readings_filtered_paginated(
         &self,
-        device_id: Uuid,
+        device_id: DeviceId,
         from: Option<chrono::DateTime<chrono::Utc>>,
         to: Option<chrono::DateTime<chrono::Utc>>,
         cursor: Option<chrono::DateTime<chrono::Utc>>,
@@ -61,6 +60,7 @@ impl<R: ReadingRepository> ReadingService<R> {
 mod tests {
     use super::*;
     use crate::{
+        domain::ids::DeviceId,
         domain::reading::{Reading, ReadingType},
         error::AppError,
         repository::reading_repo::PaginatedResult,
@@ -68,18 +68,17 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{DateTime, Utc};
     use mockall::mock;
-    use uuid::Uuid;
 
     mock! {
         pub ReadingRepository {}
 
         #[async_trait]
         impl ReadingRepository for ReadingRepository {
-            async fn insert_reading(&self, device_id: Uuid,reading: &Reading) -> Result<(), AppError>;
-            async fn insert_readings(&self, device_id: Uuid,readings: &[Reading]) -> Result<(u64, DateTime<Utc>), AppError>;
+            async fn insert_reading(&self, device_id: DeviceId,reading: &Reading) -> Result<(), AppError>;
+            async fn insert_readings(&self, device_id: DeviceId,readings: &[Reading]) -> Result<(u64, DateTime<Utc>), AppError>;
             async fn get_readings_filtered_paginated(
                 &self,
-                device_id: Uuid,
+                device_id: DeviceId,
                 from: Option<DateTime<Utc>>,
                 to: Option<DateTime<Utc>>,
                 cursor: Option<DateTime<Utc>>,
@@ -88,7 +87,7 @@ mod tests {
         }
     }
 
-    fn make_test_reading(device_id: Uuid) -> Reading {
+    fn make_test_reading(device_id: DeviceId) -> Reading {
         Reading {
             device_id,
             arrived_timestamp: Utc::now(),
@@ -101,7 +100,7 @@ mod tests {
     #[tokio::test]
     async fn test_post_readings_success() {
         let mut mock_repo = MockReadingRepository::new();
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
         let readings = vec![make_test_reading(device_id), make_test_reading(device_id)];
 
         mock_repo
@@ -119,7 +118,7 @@ mod tests {
         let mock_repo = MockReadingRepository::new();
         let service = ReadingService::new(mock_repo);
 
-        let device_id = Uuid::nil();
+        let device_id = DeviceId::nil();
         let readings = vec![make_test_reading(device_id)];
 
         let result = service.post_readings(device_id, readings).await;
@@ -129,7 +128,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_readings_filtered_paginated_success() {
         let mut mock_repo = MockReadingRepository::new();
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
 
         let r1 = make_test_reading(device_id);
         let r2 = make_test_reading(device_id);
@@ -159,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_readings_filtered_paginated_returns_empty_result() {
         let mut mock_repo = MockReadingRepository::new();
-        let device_id = Uuid::new_v4();
+        let device_id = DeviceId::new();
 
         let empty_result = PaginatedResult {
             data: vec![],
