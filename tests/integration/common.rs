@@ -4,10 +4,12 @@ use axum::{
     http::{Request, StatusCode},
 };
 use iot_hub::app_state::AppState;
+use iot_hub::auth::extractor::DEFAULT_MOCK_USER_ID;
 use iot_hub::domain::ids::{DeviceId, UserId};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
+use std::str::FromStr;
 use tower::ServiceExt;
 
 pub const TEST_DATABASE_URL: &str =
@@ -15,28 +17,17 @@ pub const TEST_DATABASE_URL: &str =
 
 pub struct TestApp {
     pub app: Router,
-    table: &'static str,
 }
 
 impl TestApp {
     pub async fn new(table: &'static str, routes: Router<AppState>) -> Self {
         let app_state = setup_test_state(table).await;
         let app = routes.with_state(app_state);
-        Self { app, table }
+        Self { app }
     }
 
     pub fn app(&self) -> &Router {
         &self.app
-    }
-}
-
-impl Drop for TestApp {
-    fn drop(&mut self) {
-        let table = self.table;
-        let fut = async move {
-            cleanup_test_state(table).await;
-        };
-        tokio::spawn(fut);
     }
 }
 
@@ -65,22 +56,26 @@ pub async fn setup_test_state(table: &str) -> AppState {
         .await
         .expect("failed to truncate table in setup");
 
+    seed_default_mock_user(&pool).await;
+
     AppState { db_pool: pool }
 }
 
-pub async fn cleanup_test_state(table: &str) {
-    setup_env();
-
-    let database_url = TEST_DATABASE_URL;
-
-    let pool = sqlx::PgPool::connect(database_url)
-        .await
-        .expect("failed to connect for cleanup");
-
-    let query = format!("TRUNCATE TABLE {} CASCADE", table);
-    pool.execute(query.as_str())
-        .await
-        .expect("failed to cleanup test state");
+/// The mock-auth extractor's fallback identity (used whenever a test doesn't
+/// send an `x-mock-user` header) needs a real row in `users` now that
+/// `devices.owner_id` has a foreign key constraint. Idempotent so it's safe
+/// to call after every table truncation, including of `users` itself.
+async fn seed_default_mock_user(pool: &PgPool) {
+    let user_id = UserId::from_str(DEFAULT_MOCK_USER_ID).unwrap();
+    sqlx::query(
+        "INSERT INTO users (id, username, email, hashed_password, role, created_at)
+         VALUES ($1, 'mock-default-user', 'mock-default-user@example.com', 'not-a-real-hash', 'Operator', NOW())
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("failed to seed default mock user fixture");
 }
 
 /// Inserts a device row directly, bypassing the API. Needed by tests that
