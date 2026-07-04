@@ -63,6 +63,14 @@ docker compose up -d
 sqlx migrate run
 ```
 
+### Seed dev data (optional)
+
+Not run automatically by migrations or CI. To populate local list/read endpoints with sample users, devices, and readings:
+
+```bash
+psql "$DATABASE_URL" -f scripts/seed_dev.sql
+```
+
 ### Run the server
 
 ```bash
