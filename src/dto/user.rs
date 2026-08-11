@@ -9,6 +9,13 @@ pub struct SignupRequest {
     pub password: String,
 }
 
+// A missing field means "leave unchanged".
+#[derive(Deserialize)]
+pub struct UpdateUserRequest {
+    pub username: Option<String>,
+    pub email: Option<String>,
+}
+
 #[derive(Serialize)]
 pub struct TokenResponse<T> {
     pub token: T,

@@ -7,7 +7,7 @@ use crate::{
         auth::AuthRequest,
         user::{
             HealthCheckResponse, ListUsersResponse, LoginResponse, MeResponse, SignupRequest,
-            SignupResponse,
+            SignupResponse, UpdateUserRequest,
         },
     },
     service::user_service::UserService,
@@ -15,7 +15,7 @@ use crate::{
 use axum::{
     Json, Router,
     extract::State,
-    routing::{get, post},
+    routing::{get, patch, post},
 };
 
 pub fn routes() -> Router<AppState> {
@@ -24,6 +24,7 @@ pub fn routes() -> Router<AppState> {
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/me", get(me))
+        .route("/me", patch(update_me))
         .route("/health", get(health_check))
 }
 
@@ -58,6 +59,19 @@ async fn me(
 ) -> HandlerResult<MeResponse> {
     let service = UserService::new(state.db_pool.clone());
     let user = service.get_current_user_info(&claims).await?;
+
+    Ok(Json(ApiResponse::success(MeResponse { user })))
+}
+
+async fn update_me(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateUserRequest>,
+) -> HandlerResult<MeResponse> {
+    let service = UserService::new(state.db_pool.clone());
+    let user = service
+        .update_current_user(&claims, payload.username, payload.email)
+        .await?;
 
     Ok(Json(ApiResponse::success(MeResponse { user })))
 }
