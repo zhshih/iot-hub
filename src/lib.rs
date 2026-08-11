@@ -43,7 +43,17 @@ pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
     let app_state = AppState { db_pool: pool };
     let app: Router = create_app(app_state);
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = match env::var("BIND_ADDR") {
+        Ok(bind_addr) => bind_addr
+            .parse()
+            .map_err(|_| AppError::EnvVarError("BIND_ADDR is not a valid socket address".into()))?,
+        Err(VarError::NotPresent) => SocketAddr::from(([0, 0, 0, 0], 3000)),
+        Err(VarError::NotUnicode(_)) => {
+            return Err(AppError::EnvVarError(
+                "BIND_ADDR is not valid unicode".into(),
+            ));
+        }
+    };
     Ok((app, addr))
 }
 

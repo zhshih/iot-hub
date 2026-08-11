@@ -77,11 +77,26 @@ psql "$DATABASE_URL" -f scripts/seed_dev.sql
 cargo run
 ```
 
-By default, the server will start on:
+By default, the server binds to `0.0.0.0:3000`, so it's reachable at:
 
 ```
 http://localhost:3000
 ```
+
+Set `BIND_ADDR` in `.env` to override the bind address/port.
+
+## Deployment
+
+The app is built to run as a container behind a TLS-terminating reverse proxy or load balancer — it only ever serves plain HTTP itself.
+
+```bash
+docker build -t iot-hub .
+docker run --rm -p 3000:3000 --env-file .env iot-hub
+```
+
+On shutdown, the server listens for SIGTERM (sent by container orchestrators on redeploy/scale-down) as well as Ctrl+C/SIGINT locally, and lets in-flight requests finish before exiting — give it a shutdown grace period long enough for your slowest request.
+
+Database migrations (`sqlx migrate run`) are not run automatically by the container; apply them against the target database as a separate step before/during rollout. In production, also set `LOG_FORMAT=json` for log pipeline compatibility.
 
 ## Authentication
 
