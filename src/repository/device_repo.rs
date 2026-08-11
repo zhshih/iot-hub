@@ -17,6 +17,14 @@ pub trait DeviceRepository: Send + Sync {
         id: DeviceId,
         owner_id: UserId,
     ) -> Result<u64, AppError>;
+    async fn update_device_by_id_and_owner(
+        &self,
+        id: DeviceId,
+        owner_id: UserId,
+        name: Option<String>,
+        description: Option<String>,
+        is_active: Option<bool>,
+    ) -> Result<Option<Device>, AppError>;
 }
 
 #[async_trait::async_trait]
@@ -111,6 +119,38 @@ impl DeviceRepository for PgPool {
 
         Ok(result.rows_affected())
     }
+
+    async fn update_device_by_id_and_owner(
+        &self,
+        id: DeviceId,
+        owner_id: UserId,
+        name: Option<String>,
+        description: Option<String>,
+        is_active: Option<bool>,
+    ) -> Result<Option<Device>, AppError> {
+        let device = sqlx::query_as!(
+            Device,
+            r#"
+            UPDATE devices
+            SET
+                name = COALESCE($3, name),
+                description = COALESCE($4, description),
+                is_active = COALESCE($5, is_active)
+            WHERE id = $1 AND owner_id = $2
+            RETURNING id, name, description, owner_id, registered_at, is_active
+            "#,
+            Uuid::from(id),
+            Uuid::from(owner_id),
+            name,
+            description,
+            is_active,
+        )
+        .fetch_optional(self)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to update device: {}", e)))?;
+
+        Ok(device)
+    }
 }
 
 #[cfg(test)]
@@ -131,6 +171,7 @@ mod tests {
             async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
             async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
             async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
+            async fn update_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId, name: Option<String>, description: Option<String>, is_active: Option<bool>) -> Result<Option<Device>, AppError>;
         }
     }
 
@@ -219,6 +260,36 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_update_device_by_id_and_owner_success() {
+        let mut mock_repo = MockDeviceRepository::new();
+
+        let device = Device {
+            id: DeviceId::new(),
+            name: "Updated Name".to_string(),
+            description: None,
+            owner_id: UserId::new(),
+            registered_at: Utc::now(),
+            is_active: false,
+        };
+
+        mock_repo
+            .expect_update_device_by_id_and_owner()
+            .returning(move |_, _, _, _, _| Ok(Some(device.clone())));
+
+        let result = mock_repo
+            .update_device_by_id_and_owner(
+                DeviceId::new(),
+                UserId::new(),
+                Some("Updated Name".to_string()),
+                None,
+                Some(false),
+            )
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().unwrap().name, "Updated Name");
     }
 
     #[tokio::test]

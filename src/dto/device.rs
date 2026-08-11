@@ -7,6 +7,15 @@ pub struct RegisterDeviceRequest {
     pub description: Option<String>,
 }
 
+// A missing field means "leave unchanged"; there's no way to clear
+// `description` to NULL through this endpoint.
+#[derive(Deserialize)]
+pub struct UpdateDeviceRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub is_active: Option<bool>,
+}
+
 #[derive(Serialize)]
 pub struct GenericDeviceResponse<T> {
     pub device_id: T,

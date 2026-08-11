@@ -6,14 +6,14 @@ use crate::{
     domain::ids::DeviceId,
     dto::device::{
         DeleteDeviceResponse, GetDeviceResponse, GetDevicesResponse, RegisterDeviceRequest,
-        RegisterDeviceResponse,
+        RegisterDeviceResponse, UpdateDeviceRequest,
     },
     service::device_service::DeviceService,
 };
 use axum::{
     Json, Router,
     extract::{Path, State},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
 };
 
 pub fn routes() -> Router<AppState> {
@@ -22,6 +22,7 @@ pub fn routes() -> Router<AppState> {
         .route("/", get(get_devices))
         .route("/{device_id}", get(get_device))
         .route("/{device_id}", delete(delete_device))
+        .route("/{device_id}", patch(update_device))
 }
 
 async fn register_device(
@@ -75,4 +76,25 @@ async fn delete_device(
     Ok(Json(ApiResponse::success(DeleteDeviceResponse {
         device_id: id.to_string(),
     })))
+}
+
+async fn update_device(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<DeviceId>,
+    Json(payload): Json<UpdateDeviceRequest>,
+) -> HandlerResult<GetDeviceResponse> {
+    let requester_id = claims.user_id()?;
+    let service = DeviceService::new(state.db_pool.clone());
+    let device = service
+        .update_device(
+            id,
+            requester_id,
+            payload.name,
+            payload.description,
+            payload.is_active,
+        )
+        .await?;
+
+    Ok(Json(ApiResponse::success(GetDeviceResponse { device })))
 }
