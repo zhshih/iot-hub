@@ -81,9 +81,9 @@ pub fn truncate_to_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
     dt.with_nanosecond(0).unwrap()
 }
 
-fn create_app(state: AppState) -> Router {
-    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-
+// ConcurrencyLimitLayer has no per-key variant, so isolating route groups means
+// giving each its own layer instances rather than sharing one pair app-wide.
+fn rate_limited_group(router: Router<AppState>) -> Router<AppState> {
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_second(10)
@@ -92,10 +92,20 @@ fn create_app(state: AppState) -> Router {
             .unwrap(),
     );
 
+    router
+        .layer(GovernorLayer::new(governor_conf))
+        .layer(ConcurrencyLimitLayer::new(100))
+}
+
+pub fn create_app(state: AppState) -> Router {
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+
+    let devices_group = rate_limited_group(api::devices::routes())
+        .merge(rate_limited_group(api::readings::routes()));
+
     Router::new()
-        .nest("/devices", api::devices::routes())
-        .nest("/readings", api::readings::routes())
-        .nest("/users", api::users::routes())
+        .nest("/api/v1/devices", devices_group)
+        .nest("/api/v1/users", rate_limited_group(api::users::routes()))
         .route(
             "/metrics",
             get({
@@ -128,7 +138,5 @@ fn create_app(state: AppState) -> Router {
                     },
                 ),
         )
-        .layer(GovernorLayer::new(governor_conf))
-        .layer(ConcurrencyLimitLayer::new(100))
         .layer(prometheus_layer)
 }
