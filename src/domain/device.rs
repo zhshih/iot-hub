@@ -2,8 +2,9 @@ use crate::domain::ids::{DeviceId, UserId};
 use crate::dto::device::RegisterDeviceRequest;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Device {
     pub id: DeviceId,
     pub name: String,

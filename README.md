@@ -28,6 +28,7 @@ This project is primarily built to explore and showcase:
 | **Middleware** | Tower Layers (rate limiting via `tower_governor`, concurrency limiting, tracing) |
 | **Auth** | JWT (`jsonwebtoken`) + Argon2 password hashing |
 | **Observability** | `tracing` (structured logs/spans) + `axum-prometheus` (metrics) |
+| **API Docs** | `utoipa` + `utoipa-swagger-ui` (OpenAPI 3 spec, Swagger UI) |
 | **Data Handling** | Serde, SQLx |
 | **Build Tool** | Cargo |
 
@@ -92,6 +93,12 @@ The app is built to run as a container behind a TLS-terminating reverse proxy or
 ```bash
 docker build -t iot-hub .
 docker run --rm -p 3000:3000 --env-file .env iot-hub
+```
+
+Or pull the image CI already built and pushed on the latest merge to `main`:
+
+```bash
+docker pull ghcr.io/zhshih/iot-hub:latest
 ```
 
 Or run the app alongside its own Postgres via `docker-compose.prod.yml` (separate from the dev/CI `docker-compose.yml`, which only stands up a database):
@@ -251,6 +258,15 @@ Like devices, these endpoints confirm the caller owns `{device_id}` before doing
 | cursor |	i64 (optional)	| Pagination cursor (Unix timestamp). |
 | limit	| usize (optional)	| Maximum number of readings to return.
 
+## API Documentation
+
+An OpenAPI 3 spec is generated from the handler/DTO annotations via [`utoipa`](https://docs.rs/utoipa):
+
+- `GET /docs` — interactive Swagger UI
+- `GET /api-docs/openapi.json` — the raw spec
+
+Both are public/unauthenticated (read-only documentation, no sensitive data), and sit outside `/api/v1` and outside any rate-limited group, same treatment as `/metrics`. The `paths(...)` list in `src/api/openapi.rs` is hand-maintained rather than generated from the router, so it needs a matching update whenever a route is added, changed, or removed.
+
 ## Architecture Overview
 
 ```lua
@@ -279,9 +295,10 @@ Like devices, these endpoints confirm the caller owns `{device_id}` before doing
 
 IoT Hub applies rate limiting via [`tower_governor`](https://docs.rs/tower_governor) and a concurrency cap via `tower::limit::ConcurrencyLimitLayer`, configured independently **per route group** (`/api/v1/users`, `/api/v1/devices` — which also covers nested readings routes) rather than shared globally:
 
-- **10 requests/second** sustained, with a **burst of 30**, keyed by client IP (not per-user — there's no per-user override yet)
+- **10 requests/second** sustained, with a **burst of 30**
 - A limit of **100 concurrent in-flight requests** per group
 - Each group has its own independent budget, so a hot endpoint in one group can't starve unrelated groups
+- Keyed by the authenticated caller (the JWT's `sub` claim), not just client IP — two users behind the same IP/proxy get independent budgets. Requests with no valid token (signup, login, health, or any request that's simply missing/invalid) fall back to peer-IP keying.
 
 ## Observability
 

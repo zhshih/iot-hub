@@ -1,8 +1,9 @@
 use super::error::ApiError;
 use axum::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 #[serde(tag = "status", rename_all = "lowercase")]
 pub enum ApiResponse<T> {
     Success { data: T },

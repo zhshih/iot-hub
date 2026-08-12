@@ -28,7 +28,18 @@ pub fn routes() -> Router<AppState> {
         .route("/health", get(health_check))
 }
 
-async fn signup(
+#[utoipa::path(
+    post,
+    path = "/api/v1/users/signup",
+    request_body = SignupRequest,
+    responses(
+        (status = 200, description = "User registered; response includes a token", body = ApiResponse<SignupResponse>),
+        (status = 400, description = "Missing/invalid fields"),
+    ),
+    description = "No auth required.",
+    tag = "users",
+)]
+pub(crate) async fn signup(
     State(state): State<AppState>,
     Json(payload): Json<SignupRequest>,
 ) -> HandlerResult<SignupResponse> {
@@ -43,7 +54,18 @@ async fn signup(
     })))
 }
 
-async fn login(
+#[utoipa::path(
+    post,
+    path = "/api/v1/users/login",
+    request_body = AuthRequest,
+    responses(
+        (status = 200, description = "Authenticated; response includes a token", body = ApiResponse<LoginResponse>),
+        (status = 401, description = "Invalid username or password"),
+    ),
+    description = "No auth required.",
+    tag = "users",
+)]
+pub(crate) async fn login(
     State(state): State<AppState>,
     Json(payload): Json<AuthRequest>,
 ) -> HandlerResult<LoginResponse> {
@@ -53,7 +75,16 @@ async fn login(
     Ok(Json(ApiResponse::success(LoginResponse { token })))
 }
 
-async fn me(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/me",
+    responses(
+        (status = 200, description = "The caller's own user info", body = ApiResponse<MeResponse>),
+    ),
+    description = "Requires a Bearer JWT.",
+    tag = "users",
+)]
+pub(crate) async fn me(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
 ) -> HandlerResult<MeResponse> {
@@ -63,7 +94,18 @@ async fn me(
     Ok(Json(ApiResponse::success(MeResponse { user })))
 }
 
-async fn update_me(
+#[utoipa::path(
+    patch,
+    path = "/api/v1/users/me",
+    request_body = UpdateUserRequest,
+    responses(
+        (status = 200, description = "Updated user (partial update; omitted fields unchanged)", body = ApiResponse<MeResponse>),
+        (status = 400, description = "Empty username/email"),
+    ),
+    description = "Requires a Bearer JWT.",
+    tag = "users",
+)]
+pub(crate) async fn update_me(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
     Json(payload): Json<UpdateUserRequest>,
@@ -76,14 +118,35 @@ async fn update_me(
     Ok(Json(ApiResponse::success(MeResponse { user })))
 }
 
-async fn health_check(State(state): State<AppState>) -> HandlerResult<HealthCheckResponse> {
+#[utoipa::path(
+    get,
+    path = "/api/v1/users/health",
+    responses(
+        (status = 200, description = "Service is healthy", body = ApiResponse<HealthCheckResponse>),
+    ),
+    description = "No auth required.",
+    tag = "users",
+)]
+pub(crate) async fn health_check(
+    State(state): State<AppState>,
+) -> HandlerResult<HealthCheckResponse> {
     let service = UserService::new(state.db_pool.clone());
     service.health_check().await?;
 
     Ok(Json(ApiResponse::success(HealthCheckResponse {})))
 }
 
-async fn list_users(
+#[utoipa::path(
+    get,
+    path = "/api/v1/users",
+    responses(
+        (status = 200, description = "All users", body = ApiResponse<ListUsersResponse>),
+        (status = 403, description = "Caller is not an Admin"),
+    ),
+    description = "Requires a Bearer JWT for an Admin user.",
+    tag = "users",
+)]
+pub(crate) async fn list_users(
     AuthUser(claims): AuthUser,
     State(state): State<AppState>,
 ) -> HandlerResult<ListUsersResponse> {

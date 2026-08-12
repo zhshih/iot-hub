@@ -19,6 +19,8 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
     dotenv().ok();
@@ -113,6 +115,9 @@ pub fn create_app(state: AppState) -> Router {
                 let handle = metric_handle.clone();
                 move || async move { handle.render() }
             }),
+        )
+        .merge(
+            SwaggerUi::new("/docs").url("/api-docs/openapi.json", api::openapi::ApiDoc::openapi()),
         )
         .with_state(state)
         .layer(
