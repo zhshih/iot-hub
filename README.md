@@ -34,12 +34,12 @@ This project is primarily built to explore and showcase:
 ## Build & Run
 
 ### Prerequisites
-- Rust — pinned to 1.90 via `rust-toolchain.toml`; `rustup` will install/select it automatically
+- Rust — no specific version pinned; a recent stable toolchain works (`rustup` will use your default)
 - Cargo package manager
 - Docker (for Postgres via `docker-compose.yml`)
 - sqlx-cli installed for database migrations (with the correct database feature)
 
->Tip: To install sqlx-cli for PostgreSQL (pinned to 0.8.6 — newer releases require a newer rustc than the 1.90 this repo pins):
+>Tip: To install sqlx-cli for PostgreSQL (pinned to 0.8.6 — newer releases require a newer rustc than this repo has historically targeted; untested against 0.9.x):
 > ```bash
 > cargo install sqlx-cli --version "=0.8.6" --no-default-features --features postgres
 >```
