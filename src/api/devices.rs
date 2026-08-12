@@ -11,23 +11,20 @@ use crate::{
     service::device_service::DeviceService,
 };
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, State},
-    routing::{delete, get, patch, post},
 };
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", post(register_device))
-        .route("/", get(get_devices))
-        .route("/{device_id}", get(get_device))
-        .route("/{device_id}", delete(delete_device))
-        .route("/{device_id}", patch(update_device))
+pub fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(register_device, get_devices))
+        .routes(routes!(get_device, delete_device, update_device))
 }
 
 #[utoipa::path(
     post,
-    path = "/api/v1/devices",
+    path = "/",
     request_body = RegisterDeviceRequest,
     responses(
         (status = 200, description = "Device registered", body = ApiResponse<RegisterDeviceResponse>),
@@ -54,7 +51,7 @@ pub(crate) async fn register_device(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/devices",
+    path = "/",
     responses(
         (status = 200, description = "The caller's own devices", body = ApiResponse<GetDevicesResponse>),
     ),
@@ -74,7 +71,7 @@ pub(crate) async fn get_devices(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/devices/{device_id}",
+    path = "/{device_id}",
     params(("device_id" = DeviceId, Path, description = "Device id")),
     responses(
         (status = 200, description = "Device details", body = ApiResponse<GetDeviceResponse>),
@@ -97,7 +94,7 @@ pub(crate) async fn get_device(
 
 #[utoipa::path(
     delete,
-    path = "/api/v1/devices/{device_id}",
+    path = "/{device_id}",
     params(("device_id" = DeviceId, Path, description = "Device id")),
     responses(
         (status = 200, description = "Device deleted", body = ApiResponse<DeleteDeviceResponse>),
@@ -122,7 +119,7 @@ pub(crate) async fn delete_device(
 
 #[utoipa::path(
     patch,
-    path = "/api/v1/devices/{device_id}",
+    path = "/{device_id}",
     params(("device_id" = DeviceId, Path, description = "Device id")),
     request_body = UpdateDeviceRequest,
     responses(

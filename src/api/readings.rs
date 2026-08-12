@@ -10,13 +10,13 @@ use crate::{
     {app_state::AppState, domain::reading::Reading},
 };
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
-    routing::{get, post},
 };
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
 #[derive(Debug, Deserialize, IntoParams)]
 pub struct ReadingQuery {
@@ -42,16 +42,15 @@ impl<T> OneOrMany<T> {
     }
 }
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/{device_id}/readings", post(post_readings))
-        .route("/{device_id}/readings", get(get_readings))
-        .route("/{device_id}/readings/latest", get(get_latest_readings))
+pub fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(post_readings, get_readings))
+        .routes(routes!(get_latest_readings))
 }
 
 #[utoipa::path(
     post,
-    path = "/api/v1/devices/{device_id}/readings",
+    path = "/{device_id}/readings",
     params(("device_id" = DeviceId, Path, description = "Device id")),
     request_body = OneOrMany<ReadingRequest>,
     responses(
@@ -90,7 +89,7 @@ pub(crate) async fn post_readings(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/devices/{device_id}/readings",
+    path = "/{device_id}/readings",
     params(("device_id" = DeviceId, Path, description = "Device id"), ReadingQuery),
     responses(
         (status = 200, description = "Readings for the device, optionally filtered/paginated", body = ApiResponse<GetPaginatedReadingResponse>),
@@ -131,7 +130,7 @@ pub(crate) async fn get_readings(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/devices/{device_id}/readings/latest",
+    path = "/{device_id}/readings/latest",
     params(("device_id" = DeviceId, Path, description = "Device id")),
     responses(
         (status = 200, description = "Most recent reading for the device", body = ApiResponse<GetReadingResponse>),

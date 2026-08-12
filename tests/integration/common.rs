@@ -11,6 +11,7 @@ use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
 use std::str::FromStr;
 use tower::ServiceExt;
+use utoipa_axum::router::OpenApiRouter;
 
 pub const TEST_DATABASE_URL: &str =
     "postgres://test_user:test_password@localhost/iot_monitoring_test";
@@ -20,9 +21,10 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    pub async fn new(table: &'static str, routes: Router<AppState>) -> Self {
+    pub async fn new(table: &'static str, routes: OpenApiRouter<AppState>) -> Self {
         let app_state = setup_test_state(table).await;
-        let app = routes.with_state(app_state);
+        let router: Router<AppState> = routes.into();
+        let app = router.with_state(app_state);
         Self { app }
     }
 

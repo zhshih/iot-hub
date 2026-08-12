@@ -260,12 +260,12 @@ Like devices, these endpoints confirm the caller owns `{device_id}` before doing
 
 ## API Documentation
 
-An OpenAPI 3 spec is generated from the handler/DTO annotations via [`utoipa`](https://docs.rs/utoipa):
+An OpenAPI 3 spec is generated from the handler/DTO annotations via [`utoipa`](https://docs.rs/utoipa) and [`utoipa-axum`](https://docs.rs/utoipa-axum):
 
 - `GET /docs` — interactive Swagger UI
 - `GET /api-docs/openapi.json` — the raw spec
 
-Both are public/unauthenticated (read-only documentation, no sensitive data), and sit outside `/api/v1` and outside any rate-limited group, same treatment as `/metrics`. The `paths(...)` list in `src/api/openapi.rs` is hand-maintained rather than generated from the router, so it needs a matching update whenever a route is added, changed, or removed.
+Both are public/unauthenticated (read-only documentation, no sensitive data), and sit outside `/api/v1` and outside any rate-limited group, same treatment as `/metrics`. The spec's paths and schemas come directly from the same `OpenApiRouter`/`routes!(...)` calls that register the real routes — there's no separate hand-maintained list to fall out of sync; adding, removing, or changing a route automatically updates the spec.
 
 ## Architecture Overview
 

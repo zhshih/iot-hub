@@ -12,25 +12,21 @@ use crate::{
     },
     service::user_service::UserService,
 };
-use axum::{
-    Json, Router,
-    extract::State,
-    routing::{get, patch, post},
-};
+use axum::{Json, extract::State};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/", get(list_users))
-        .route("/signup", post(signup))
-        .route("/login", post(login))
-        .route("/me", get(me))
-        .route("/me", patch(update_me))
-        .route("/health", get(health_check))
+pub fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(list_users))
+        .routes(routes!(signup))
+        .routes(routes!(login))
+        .routes(routes!(me, update_me))
+        .routes(routes!(health_check))
 }
 
 #[utoipa::path(
     post,
-    path = "/api/v1/users/signup",
+    path = "/signup",
     request_body = SignupRequest,
     responses(
         (status = 200, description = "User registered; response includes a token", body = ApiResponse<SignupResponse>),
@@ -56,7 +52,7 @@ pub(crate) async fn signup(
 
 #[utoipa::path(
     post,
-    path = "/api/v1/users/login",
+    path = "/login",
     request_body = AuthRequest,
     responses(
         (status = 200, description = "Authenticated; response includes a token", body = ApiResponse<LoginResponse>),
@@ -77,7 +73,7 @@ pub(crate) async fn login(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/users/me",
+    path = "/me",
     responses(
         (status = 200, description = "The caller's own user info", body = ApiResponse<MeResponse>),
     ),
@@ -96,7 +92,7 @@ pub(crate) async fn me(
 
 #[utoipa::path(
     patch,
-    path = "/api/v1/users/me",
+    path = "/me",
     request_body = UpdateUserRequest,
     responses(
         (status = 200, description = "Updated user (partial update; omitted fields unchanged)", body = ApiResponse<MeResponse>),
@@ -120,7 +116,7 @@ pub(crate) async fn update_me(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/users/health",
+    path = "/health",
     responses(
         (status = 200, description = "Service is healthy", body = ApiResponse<HealthCheckResponse>),
     ),
@@ -138,7 +134,7 @@ pub(crate) async fn health_check(
 
 #[utoipa::path(
     get,
-    path = "/api/v1/users",
+    path = "/",
     responses(
         (status = 200, description = "All users", body = ApiResponse<ListUsersResponse>),
         (status = 403, description = "Caller is not an Admin"),
