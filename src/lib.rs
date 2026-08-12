@@ -7,7 +7,7 @@ pub mod error;
 pub mod repository;
 pub mod service;
 
-use crate::{app_state::AppState, error::AppError};
+use crate::{app_state::AppState, auth::rate_limit_key::UserOrIpKeyExtractor, error::AppError};
 use axum::{Router, http, routing::get};
 use axum_prometheus::PrometheusMetricLayer;
 use chrono::{DateTime, Timelike, Utc};
@@ -88,6 +88,7 @@ fn rate_limited_group(router: Router<AppState>) -> Router<AppState> {
         GovernorConfigBuilder::default()
             .per_second(10)
             .burst_size(30)
+            .key_extractor(UserOrIpKeyExtractor)
             .finish()
             .unwrap(),
     );
