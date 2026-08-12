@@ -19,9 +19,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install rustfmt and clippy
-        # rustup auto-installs the 1.90 toolchain pinned by rust-toolchain.toml
-        # on first use, but components aren't included by default like they
-        # are for the runner's preinstalled stable toolchain.
         run: rustup component add rustfmt clippy
 
       - name: Start Postgres
@@ -36,7 +33,8 @@ jobs:
 
       - name: Install sqlx-cli
         # Pinned to match the sqlx crate version in Cargo.toml -- sqlx-cli
-        # latest (0.9.x) requires a newer rustc than the 1.90 this repo pins.
+        # latest (0.9.x) has historically required a newer rustc than this
+        # repo has targeted; untested against the current toolchain.
         run: cargo install sqlx-cli --version "=0.8.6" --no-default-features --features postgres
 
       - name: Run migrations
