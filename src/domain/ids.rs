@@ -5,9 +5,21 @@ use uuid::Uuid;
 
 macro_rules! define_id_newtype {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, sqlx::Type)]
+        #[derive(
+            Debug,
+            Clone,
+            Copy,
+            PartialEq,
+            Eq,
+            Hash,
+            Serialize,
+            Deserialize,
+            sqlx::Type,
+            utoipa::ToSchema,
+        )]
         #[serde(transparent)]
         #[sqlx(transparent)]
+        #[schema(value_type = String, format = "uuid")]
         pub struct $name(pub Uuid);
 
         impl Default for $name {

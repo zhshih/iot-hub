@@ -36,6 +36,9 @@ tower-http = { version = "0.6.6", features = ["trace"] }
 tower = "0.5.2"
 tower_governor = "0.8.0"
 axum-prometheus = "0.9.0"
+utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2.0"
+utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
 
 [dev-dependencies]
 tower = "0.5.2"

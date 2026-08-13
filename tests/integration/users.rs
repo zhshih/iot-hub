@@ -96,6 +96,42 @@ async fn test_me() {
 
 #[tokio::test]
 #[serial]
+async fn test_update_me() {
+    let test_app = TestApp::new(USERS_TABLE, routes()).await;
+
+    let (_, signup_json) = send_json(
+        test_app.app(),
+        "POST",
+        "/signup",
+        Some(json!({
+            "username": "before_update",
+            "email": "before_update@example.com",
+            "password": "password123"
+        })),
+    )
+    .await;
+    let user_id = signup_json["data"]["user_id"]
+        .as_str()
+        .expect("user_id should be present in signup response");
+
+    let patch = json!({ "username": "after_update" });
+    let (status, json) = send_json_with_header(
+        test_app.app(),
+        "PATCH",
+        "/me",
+        Some(patch),
+        "x-mock-user",
+        user_id,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["data"]["user"]["username"], "after_update");
+    assert_eq!(json["data"]["user"]["email"], "before_update@example.com");
+}
+
+#[tokio::test]
+#[serial]
 async fn test_list_users() {
     let test_app = TestApp::new(USERS_TABLE, routes()).await;
 

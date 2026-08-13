@@ -1,0 +1,36 @@
+name: iot-hub-prod
+
+services:
+  app:
+    build: .
+    container_name: iot_hub_app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://postgres:password@db:5432/iot_monitoring
+      JWT_SECRET: ${JWT_SECRET}
+      BIND_ADDR: 0.0.0.0:3000
+      LOG_FORMAT: json
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: postgres:16
+    container_name: iot_postgres_prod
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: iot_monitoring
+    ports:
+      - "5433:5432"
+    volumes:
+      - prod_pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  prod_pgdata:

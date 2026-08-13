@@ -10,14 +10,15 @@ use crate::{
     {app_state::AppState, domain::reading::Reading},
 };
 use axum::{
-    Json, Router,
+    Json,
     extract::{Path, Query, State},
-    routing::{get, post},
 };
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
+use utoipa_axum::{router::OpenApiRouter, routes};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
 pub struct ReadingQuery {
     pub from: Option<i64>,
     pub to: Option<i64>,
@@ -25,7 +26,7 @@ pub struct ReadingQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 #[serde(untagged)]
 pub enum OneOrMany<T> {
     One(T),
@@ -41,14 +42,25 @@ impl<T> OneOrMany<T> {
     }
 }
 
-pub fn routes() -> Router<AppState> {
-    Router::new()
-        .route("/{device_id}/readings", post(post_readings))
-        .route("/{device_id}/readings", get(get_readings))
-        .route("/{device_id}/readings/latest", get(get_latest_readings))
+pub fn routes() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(post_readings, get_readings))
+        .routes(routes!(get_latest_readings))
 }
 
-async fn post_readings(
+#[utoipa::path(
+    post,
+    path = "/{device_id}/readings",
+    params(("device_id" = DeviceId, Path, description = "Device id")),
+    request_body = OneOrMany<ReadingRequest>,
+    responses(
+        (status = 200, description = "Reading(s) stored", body = ApiResponse<PostReadingResponse>),
+        (status = 404, description = "Device not found, or not owned by the caller"),
+    ),
+    description = "Requires a Bearer JWT. Accepts either a single reading object or an array of readings.",
+    tag = "readings",
+)]
+pub(crate) async fn post_readings(
     State(state): State<AppState>,
     Path(id): Path<DeviceId>,
     AuthUser(claims): AuthUser,
@@ -75,7 +87,18 @@ async fn post_readings(
     })))
 }
 
-async fn get_readings(
+#[utoipa::path(
+    get,
+    path = "/{device_id}/readings",
+    params(("device_id" = DeviceId, Path, description = "Device id"), ReadingQuery),
+    responses(
+        (status = 200, description = "Readings for the device, optionally filtered/paginated", body = ApiResponse<GetPaginatedReadingResponse>),
+        (status = 404, description = "Device not found, or not owned by the caller"),
+    ),
+    description = "Requires a Bearer JWT.",
+    tag = "readings",
+)]
+pub(crate) async fn get_readings(
     State(state): State<AppState>,
     Path(device_id): Path<DeviceId>,
     Query(params): Query<ReadingQuery>,
@@ -105,7 +128,18 @@ async fn get_readings(
     })))
 }
 
-async fn get_latest_readings(
+#[utoipa::path(
+    get,
+    path = "/{device_id}/readings/latest",
+    params(("device_id" = DeviceId, Path, description = "Device id")),
+    responses(
+        (status = 200, description = "Most recent reading for the device", body = ApiResponse<GetReadingResponse>),
+        (status = 404, description = "Device not found (or not owned), or no readings exist yet"),
+    ),
+    description = "Requires a Bearer JWT.",
+    tag = "readings",
+)]
+pub(crate) async fn get_latest_readings(
     State(state): State<AppState>,
     Path(device_id): Path<DeviceId>,
     AuthUser(claims): AuthUser,

@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 use std::fmt;
+use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
@@ -19,7 +20,7 @@ pub struct User {
 /// access) and is not yet produced or checked anywhere in the codebase — `signup()`
 /// only ever assigns `Admin` (via `ADMIN_BOOTSTRAP_EMAIL`) or `Operator`. Only Admin
 /// vs. non-Admin is currently enforced (see `UserService::list_users`).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type, ToSchema)]
 #[sqlx(type_name = "TEXT")]
 pub enum UserRole {
     Admin,
@@ -54,7 +55,7 @@ impl SignupUser {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PublicUser {
     pub id: UserId,
     pub username: String,

@@ -1,23 +1,33 @@
 use crate::domain::device::Device;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RegisterDeviceRequest {
     pub name: String,
     pub description: Option<String>,
 }
 
-#[derive(Serialize)]
+// A missing field means "leave unchanged"; there's no way to clear
+// `description` to NULL through this endpoint.
+#[derive(Deserialize, ToSchema)]
+pub struct UpdateDeviceRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub is_active: Option<bool>,
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct GenericDeviceResponse<T> {
     pub device_id: T,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct GetDevicesResponse {
     pub devices: Vec<Device>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct GetDeviceResponse {
     pub device: Device,
 }

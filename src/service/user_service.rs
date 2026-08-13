@@ -137,6 +137,28 @@ impl<R: UserRepository> UserService<R> {
             Err(AppError::HealthCheckFailed)
         }
     }
+
+    pub async fn update_current_user(
+        &self,
+        claims: &Claims,
+        username: Option<String>,
+        email: Option<String>,
+    ) -> Result<PublicUser, AppError> {
+        if username.as_deref() == Some("") || email.as_deref() == Some("") {
+            return Err(AppError::MissingArgument(
+                "Username and email cannot be empty".to_string(),
+            ));
+        }
+
+        let user_id = claims.user_id()?;
+        let user = self
+            .repo
+            .update_user(user_id, username, email)
+            .await?
+            .ok_or(AppError::NotFound("User not found".to_string()))?;
+
+        Ok(PublicUser::from(user))
+    }
 }
 
 #[cfg(test)]
@@ -159,6 +181,7 @@ mod tests {
             async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
+            async fn update_user(&self, id: UserId, username: Option<String>, email: Option<String>) -> Result<Option<User>, AppError>;
         }
     }
 
@@ -423,5 +446,64 @@ mod tests {
 
         let result = service.health_check().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_update_current_user_success() {
+        let mut user = make_test_user("jane", "pass", UserRole::Operator);
+        user.username = "jane2".to_string();
+        let user_id = user.id;
+        let user_clone = user.clone();
+
+        let mut mock_repo = MockUserRepository::new();
+        mock_repo
+            .expect_update_user()
+            .returning(move |_, _, _| Ok(Some(user_clone.clone())));
+
+        let service = UserService::new(mock_repo);
+        let claims = Claims {
+            sub: user_id.to_string(),
+            iat: 0,
+            exp: 0,
+        };
+
+        let result = service
+            .update_current_user(&claims, Some("jane2".to_string()), None)
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().username, "jane2");
+    }
+
+    #[tokio::test]
+    async fn test_update_current_user_not_found() {
+        let mut mock_repo = MockUserRepository::new();
+        mock_repo.expect_update_user().returning(|_, _, _| Ok(None));
+
+        let service = UserService::new(mock_repo);
+        let claims = Claims {
+            sub: UserId::new().to_string(),
+            iat: 0,
+            exp: 0,
+        };
+
+        let result = service.update_current_user(&claims, None, None).await;
+        assert!(matches!(result, Err(AppError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_update_current_user_empty_field_error() {
+        let mock_repo = MockUserRepository::new();
+        let service = UserService::new(mock_repo);
+        let claims = Claims {
+            sub: UserId::new().to_string(),
+            iat: 0,
+            exp: 0,
+        };
+
+        let result = service
+            .update_current_user(&claims, Some("".to_string()), None)
+            .await;
+        assert!(matches!(result, Err(AppError::MissingArgument(_))));
     }
 }

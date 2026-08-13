@@ -13,6 +13,12 @@ pub trait UserRepository: Send + Sync {
     async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
     async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
     async fn health_check(&self) -> Result<bool, AppError>;
+    async fn update_user(
+        &self,
+        id: UserId,
+        username: Option<String>,
+        email: Option<String>,
+    ) -> Result<Option<User>, AppError>;
 }
 
 #[async_trait::async_trait]
@@ -88,6 +94,31 @@ impl UserRepository for PgPool {
 
         Ok(row.0 == 1)
     }
+
+    async fn update_user(
+        &self,
+        id: UserId,
+        username: Option<String>,
+        email: Option<String>,
+    ) -> Result<Option<User>, AppError> {
+        sqlx::query_as!(
+            User,
+            r#"
+            UPDATE users
+            SET
+                username = COALESCE($2, username),
+                email = COALESCE($3, email)
+            WHERE id = $1
+            RETURNING id, username, email, hashed_password, role as "role: UserRole", created_at
+            "#,
+            Uuid::from(id),
+            username,
+            email,
+        )
+        .fetch_optional(self)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to update user {}: {}", id, e)))
+    }
 }
 
 #[cfg(test)]
@@ -110,6 +141,7 @@ mod tests {
             async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError>;
             async fn list_all_users(&self) -> Result<Vec<User>, AppError>;
             async fn health_check(&self) -> Result<bool, AppError>;
+            async fn update_user(&self, id: UserId, username: Option<String>, email: Option<String>) -> Result<Option<User>, AppError>;
         }
     }
 
@@ -215,5 +247,23 @@ mod tests {
         let user = make_test_user("duplicate");
         let result = mock_repo.insert_user(&user).await;
         assert!(matches!(result, Err(AppError::DatabaseError(_))));
+    }
+
+    #[tokio::test]
+    async fn test_update_user_success() {
+        let mut mock_repo = MockUserRepository::new();
+        let mut user = make_test_user("eve");
+        user.username = "eve2".to_string();
+        let user_for_closure = user.clone();
+
+        mock_repo
+            .expect_update_user()
+            .returning(move |_, _, _| Ok(Some(user_for_closure.clone())));
+
+        let result = mock_repo
+            .update_user(user.id, Some("eve2".to_string()), None)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().unwrap().username, "eve2");
     }
 }

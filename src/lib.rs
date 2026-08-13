@@ -7,7 +7,7 @@ pub mod error;
 pub mod repository;
 pub mod service;
 
-use crate::{app_state::AppState, error::AppError};
+use crate::{app_state::AppState, auth::rate_limit_key::UserOrIpKeyExtractor, error::AppError};
 use axum::{Router, http, routing::get};
 use axum_prometheus::PrometheusMetricLayer;
 use chrono::{DateTime, Timelike, Utc};
@@ -19,6 +19,9 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_swagger_ui::SwaggerUi;
 
 pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
     dotenv().ok();
@@ -81,21 +84,40 @@ pub fn truncate_to_seconds(dt: DateTime<Utc>) -> DateTime<Utc> {
     dt.with_nanosecond(0).unwrap()
 }
 
-fn create_app(state: AppState) -> Router {
-    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
-
+// ConcurrencyLimitLayer has no per-key variant, so isolating route groups means
+// giving each its own layer instances rather than sharing one pair app-wide.
+fn rate_limited_group(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     let governor_conf = Box::new(
         GovernorConfigBuilder::default()
             .per_second(10)
             .burst_size(30)
+            .key_extractor(UserOrIpKeyExtractor)
             .finish()
             .unwrap(),
     );
 
-    Router::new()
-        .nest("/devices", api::devices::routes())
-        .nest("/readings", api::readings::routes())
-        .nest("/users", api::users::routes())
+    router
+        .layer(GovernorLayer::new(governor_conf))
+        .layer(ConcurrencyLimitLayer::new(100))
+}
+
+// Split out so the OpenAPI spec can be built and tested without needing a
+// real AppState (a PgPool value) -- .with_state() only happens afterward.
+fn build_router_and_openapi() -> (Router<AppState>, utoipa::openapi::OpenApi) {
+    let devices_group = rate_limited_group(api::devices::routes())
+        .merge(rate_limited_group(api::readings::routes()));
+
+    OpenApiRouter::with_openapi(api::openapi::ApiDoc::openapi())
+        .nest("/api/v1/devices", devices_group)
+        .nest("/api/v1/users", rate_limited_group(api::users::routes()))
+        .split_for_parts()
+}
+
+pub fn create_app(state: AppState) -> Router {
+    let (prometheus_layer, metric_handle) = PrometheusMetricLayer::pair();
+    let (router, openapi) = build_router_and_openapi();
+
+    router
         .route(
             "/metrics",
             get({
@@ -103,6 +125,7 @@ fn create_app(state: AppState) -> Router {
                 move || async move { handle.render() }
             }),
         )
+        .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", openapi))
         .with_state(state)
         .layer(
             TraceLayer::new_for_http()
@@ -128,7 +151,15 @@ fn create_app(state: AppState) -> Router {
                     },
                 ),
         )
-        .layer(GovernorLayer::new(governor_conf))
-        .layer(ConcurrencyLimitLayer::new(100))
         .layer(prometheus_layer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openapi_spec_builds_from_real_routes() {
+        let _ = build_router_and_openapi();
+    }
 }

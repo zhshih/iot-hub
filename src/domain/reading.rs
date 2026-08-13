@@ -4,8 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Type};
 use std::fmt;
+use utoipa::ToSchema;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, FromRow, ToSchema)]
 pub struct Reading {
     pub device_id: DeviceId,
     pub arrived_timestamp: DateTime<Utc>,
@@ -40,7 +41,7 @@ impl Reading {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Type, ToSchema)]
 #[sqlx(type_name = "TEXT")]
 pub enum ReadingType {
     Temperature,

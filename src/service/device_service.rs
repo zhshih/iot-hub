@@ -68,6 +68,26 @@ impl<R: DeviceRepository> DeviceService<R> {
 
         Ok(())
     }
+
+    pub async fn update_device(
+        &self,
+        id: DeviceId,
+        requester_id: UserId,
+        name: Option<String>,
+        description: Option<String>,
+        is_active: Option<bool>,
+    ) -> Result<Device, AppError> {
+        if name.as_deref() == Some("") {
+            return Err(AppError::MissingArgument(
+                "Device name cannot be empty".to_string(),
+            ));
+        }
+
+        self.repo
+            .update_device_by_id_and_owner(id, requester_id, name, description, is_active)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Device with id {} not found", id)))
+    }
 }
 
 #[cfg(test)]
@@ -88,6 +108,7 @@ mod tests {
             async fn list_all_device(&self) -> Result<Vec<Device>, AppError>;
             async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
             async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
+            async fn update_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId, name: Option<String>, description: Option<String>, is_active: Option<bool>) -> Result<Option<Device>, AppError>;
         }
     }
 
@@ -256,5 +277,64 @@ mod tests {
             }
             _ => panic!("Expected AppError::NotFound, got {:?}", result),
         }
+    }
+
+    #[tokio::test]
+    async fn test_update_device_success() {
+        let mut mock_repo = MockDeviceRepository::new();
+        let mut device = make_test_device();
+        device.name = "Renamed".into();
+        let device_for_closure = device.clone();
+
+        mock_repo
+            .expect_update_device_by_id_and_owner()
+            .returning(move |_, _, _, _, _| Ok(Some(device_for_closure.clone())));
+
+        let service = DeviceService::new(mock_repo);
+        let result = service
+            .update_device(
+                DeviceId::new(),
+                UserId::new(),
+                Some("Renamed".to_string()),
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().name, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn test_update_device_not_found() {
+        let mut mock_repo = MockDeviceRepository::new();
+        mock_repo
+            .expect_update_device_by_id_and_owner()
+            .returning(|_, _, _, _, _| Ok(None));
+
+        let service = DeviceService::new(mock_repo);
+        let result = service
+            .update_device(DeviceId::new(), UserId::new(), None, None, Some(false))
+            .await;
+
+        assert!(matches!(result, Err(AppError::NotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn test_update_device_empty_name_error() {
+        let mock_repo = MockDeviceRepository::new();
+        let service = DeviceService::new(mock_repo);
+
+        let result = service
+            .update_device(
+                DeviceId::new(),
+                UserId::new(),
+                Some("".to_string()),
+                None,
+                None,
+            )
+            .await;
+
+        assert!(matches!(result, Err(AppError::MissingArgument(_))));
     }
 }
