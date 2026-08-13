@@ -37,8 +37,20 @@ pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
         VarError::NotUnicode(_) => AppError::EnvVarError("JWT_SECRET is not valid unicode".into()),
     })?;
 
+    let db_max_connections = match env::var("DB_MAX_CONNECTIONS") {
+        Ok(max_connections) => max_connections
+            .parse()
+            .map_err(|_| AppError::EnvVarError("DB_MAX_CONNECTIONS is not a valid u32".into()))?,
+        Err(VarError::NotPresent) => 5,
+        Err(VarError::NotUnicode(_)) => {
+            return Err(AppError::EnvVarError(
+                "DB_MAX_CONNECTIONS is not valid unicode".into(),
+            ));
+        }
+    };
+
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(db_max_connections)
         .connect(&database_url)
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
