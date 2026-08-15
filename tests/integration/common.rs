@@ -3,15 +3,15 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use std::net::SocketAddr;
-use tokio::net::TcpListener;
 use iot_hub::app_state::AppState;
 use iot_hub::auth::extractor::DEFAULT_MOCK_USER_ID;
 use iot_hub::domain::ids::{DeviceId, UserId};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
+use std::net::SocketAddr;
 use std::str::FromStr;
+use tokio::net::TcpListener;
 use tower::ServiceExt;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -114,9 +114,12 @@ pub async fn spawn_test_server(app: Router) -> SocketAddr {
         .expect("failed to bind test server");
     let addr = listener.local_addr().expect("failed to get local addr");
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .await
-            .expect("test server failed");
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("test server failed");
     });
     addr
 }
