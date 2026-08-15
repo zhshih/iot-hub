@@ -17,7 +17,7 @@ use std::env::VarError;
 use std::{env, net::SocketAddr};
 use tower::limit::ConcurrencyLimitLayer;
 use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing_subscriber::{EnvFilter, fmt, layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -141,6 +141,13 @@ pub fn create_app(state: AppState) -> Router {
                 move || async move { handle.render() }
             }),
         )
+        // Deliberately outside rate_limited_group: a long-lived WS connection
+        // would otherwise hold one of its 100 ConcurrencyLimitLayer slots for its whole lifetime.
+        .route(
+            "/api/v1/devices/{device_id}/readings/stream",
+            get(api::readings::ws_reading_stream),
+        )
+        .nest_service("/dashboard", ServeDir::new("static"))
         .merge(SwaggerUi::new("/docs").url("/api-docs/openapi.json", openapi))
         .with_state(state)
         .layer(

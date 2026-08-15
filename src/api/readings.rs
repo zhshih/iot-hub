@@ -1,7 +1,7 @@
 use super::error::ApiError;
 use crate::{
     api::response::{ApiResponse, HandlerResult},
-    auth::extractor::AuthUser,
+    auth::extractor::{AuthUser, WsAuthUser},
     domain::ids::DeviceId,
     dto::reading::{
         GetPaginatedReadingResponse, GetReadingResponse, PostReadingResponse, ReadingRequest,
@@ -11,10 +11,15 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{
+        Path, Query, State,
+        ws::{Message, WebSocket, WebSocketUpgrade},
+    },
+    response::Response,
 };
 use chrono::{TimeZone, Utc};
 use serde::Deserialize;
+use tokio::sync::broadcast;
 use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::{router::OpenApiRouter, routes};
 
@@ -78,7 +83,12 @@ pub(crate) async fn post_readings(
         .map(|req| Reading::from_request(req, id))
         .collect();
 
-    let result = service.post_readings(id, readings).await?;
+    let result = service.post_readings(id, readings.clone()).await?;
+
+    for reading in &readings {
+        // No subscribers is not an error -- the dashboard is just an optional viewer.
+        let _ = state.readings_tx.send(reading.clone());
+    }
 
     Ok(Json(ApiResponse::success(PostReadingResponse {
         inserted: result.inserted,
@@ -162,4 +172,49 @@ pub(crate) async fn get_latest_readings(
         device_id,
         readings: vec![reading],
     })))
+}
+
+// utoipa can't model a WS upgrade, so this is a plain axum route in
+// create_app (like /metrics), not part of the routes!/OpenApiRouter set.
+pub(crate) async fn ws_reading_stream(
+    State(state): State<AppState>,
+    Path(device_id): Path<DeviceId>,
+    WsAuthUser(claims): WsAuthUser,
+    ws: WebSocketUpgrade,
+) -> Result<Response, ApiError> {
+    let requester_id = claims.user_id()?;
+    let device_service = DeviceService::new(state.db_pool.clone());
+    device_service.get_device(device_id, requester_id).await?;
+
+    let rx = state.readings_tx.subscribe();
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, rx, device_id)))
+}
+
+async fn handle_socket(
+    mut socket: WebSocket,
+    mut rx: broadcast::Receiver<Reading>,
+    device_id: DeviceId,
+) {
+    loop {
+        tokio::select! {
+            msg = rx.recv() => match msg {
+                Ok(reading) if reading.device_id == device_id => {
+                    let Ok(payload) = serde_json::to_string(&reading) else { continue };
+                    if socket.send(Message::Text(payload.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Ok(_) => continue,
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(skipped, %device_id, "WS reading stream lagged, skipping missed messages");
+                    continue;
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            incoming = socket.recv() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                _ => {}
+            }
+        }
+    }
 }
