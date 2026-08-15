@@ -68,3 +68,48 @@ where
         }))
     }
 }
+
+/// Browsers can't set headers on a WebSocket upgrade, so this reads the JWT
+/// from `?token=` instead. Scoped to the reading-stream route only -- every
+/// other endpoint keeps header-based `AuthUser` auth unchanged.
+#[derive(Clone)]
+pub struct WsAuthUser(pub Claims);
+
+#[cfg(not(feature = "mock-auth"))]
+impl<S> FromRequestParts<S> for WsAuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        #[derive(serde::Deserialize)]
+        struct TokenQuery {
+            token: String,
+        }
+
+        let axum::extract::Query(TokenQuery { token }) =
+            axum::extract::Query::<TokenQuery>::from_request_parts(parts, _state)
+                .await
+                .map_err(|_| (StatusCode::UNAUTHORIZED, "Missing token query parameter"))?;
+
+        let claims: Claims = decode_jwt(&token)
+            .map_err(|_err| (StatusCode::UNAUTHORIZED, "Invalid or expired token"))?
+            .claims;
+
+        Ok(WsAuthUser(claims))
+    }
+}
+
+#[cfg(feature = "mock-auth")]
+impl<S> FromRequestParts<S> for WsAuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let AuthUser(claims) = AuthUser::from_request_parts(parts, state).await?;
+        Ok(WsAuthUser(claims))
+    }
+}
