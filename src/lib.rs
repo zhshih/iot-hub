@@ -55,7 +55,11 @@ pub async fn build_app() -> Result<(Router, SocketAddr), AppError> {
         .await
         .map_err(|e| AppError::DatabaseError(e.to_string()))?;
 
-    let app_state = AppState { db_pool: pool };
+    let (readings_tx, _rx) = tokio::sync::broadcast::channel(256);
+    let app_state = AppState {
+        db_pool: pool,
+        readings_tx,
+    };
     let app: Router = create_app(app_state);
 
     let addr = match env::var("BIND_ADDR") {

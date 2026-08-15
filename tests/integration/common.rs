@@ -60,7 +60,11 @@ pub async fn setup_test_state(table: &str) -> AppState {
 
     seed_default_mock_user(&pool).await;
 
-    AppState { db_pool: pool }
+    let (readings_tx, _rx) = tokio::sync::broadcast::channel(256);
+    AppState {
+        db_pool: pool,
+        readings_tx,
+    }
 }
 
 /// The mock-auth extractor's fallback identity (used whenever a test doesn't
