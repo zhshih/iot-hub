@@ -12,11 +12,13 @@ The system provides RESTful APIs for:
 - **User Management** — Authentication, registration, and health check endpoints.  
 - **Device Management** — Register, query, and remove IoT devices.  
 - **Readings** — Store and fetch telemetry data from registered devices.
+- **Real-Time Streaming** — Push newly-ingested readings to connected clients over WebSocket, viewable live in a minimal built-in dashboard.
 
 This project is primarily built to explore and showcase:
 - **Axum ecosystem**: request routing, extractors, middleware, and layered architecture.  
 - **Observability**: structured request tracing (`tracing`) and Prometheus metrics.  
 - **Clean backend design** using state management, modular routing, and async Rust.
+- **Async real-time delivery**: a `tokio::sync::broadcast` fan-out feeding a WebSocket endpoint, with per-connection filtering and lag handling.
 
 ## Tech Stack
 
@@ -26,6 +28,7 @@ This project is primarily built to explore and showcase:
 | **Framework** | Axum |
 | **Async Runtime** | Tokio |
 | **Middleware** | Tower Layers (rate limiting via `tower_governor`, concurrency limiting, tracing) |
+| **Real-Time** | Axum WebSockets + `tokio::sync::broadcast` |
 | **Auth** | JWT (`jsonwebtoken`) + Argon2 password hashing |
 | **Observability** | `tracing` (structured logs/spans) + `axum-prometheus` (metrics) |
 | **API Docs** | `utoipa` + `utoipa-swagger-ui` (OpenAPI 3 spec, Swagger UI) |
@@ -258,6 +261,24 @@ Like devices, these endpoints confirm the caller owns `{device_id}` before doing
 | cursor |	i64 (optional)	| Pagination cursor (Unix timestamp). |
 | limit	| usize (optional)	| Maximum number of readings to return.
 
+### Real-Time Reading Stream
+
+`GET /api/v1/devices/{device_id}/readings/stream` (WebSocket upgrade)
+
+Pushes each newly-ingested reading for `{device_id}` to connected clients as JSON, as soon as it's POSTed. Same ownership check as the endpoints above (`404` if you don't own — or nothing exists — for `{device_id}`), checked before the upgrade so a mismatched caller gets a clean `404` instead of a socket that opens then closes.
+
+Auth differs from every other endpoint: browsers can't set an `Authorization` header on a WebSocket upgrade, so the JWT goes in a `?token=` query parameter instead:
+
+```
+wss://<host>/api/v1/devices/{device_id}/readings/stream?token=<JWT>
+```
+
+Query-string tokens can end up in access/proxy logs — an accepted trade-off scoped to this one route; every other endpoint keeps header-based auth. Not part of the OpenAPI spec (`utoipa` can't model a WS upgrade) and, unlike every other `/api/v1` route, not subject to rate limiting or the concurrency cap — a long-lived connection would otherwise hold one of those slots for its entire lifetime.
+
+## Live Dashboard
+
+`GET /dashboard/` serves a minimal static page (plain HTML/JS, no build step, no framework) that connects to the reading stream above and shows readings live as they arrive. Paste a JWT and a device id you own (or pass `?token=&device=` in the URL) and click Connect. Public/unauthenticated at the HTTP level — the JWT is supplied by the user in the page, not baked in — and sits outside `/api/v1`, same as `/docs`.
+
 ## API Documentation
 
 An OpenAPI 3 spec is generated from the handler/DTO annotations via [`utoipa`](https://docs.rs/utoipa) and [`utoipa-axum`](https://docs.rs/utoipa-axum):
@@ -284,7 +305,7 @@ Both are public/unauthenticated (read-only documentation, no sensitive data), an
 |          State: AppState (Postgres connection pool)              |
 +----------------------------------------------------------------+
 ```
-`/metrics` is mounted outside `/api/v1` and outside any rate-limited group, since it's a Prometheus scrape endpoint, not a versioned client-facing resource.
+`/metrics` is mounted outside `/api/v1` and outside any rate-limited group, since it's a Prometheus scrape endpoint, not a versioned client-facing resource. The reading-stream WebSocket and `/dashboard` get the same treatment — registered directly in `create_app`, outside `build_router_and_openapi`'s nested groups, so neither inherits rate limiting or the concurrency cap (see Real-Time Reading Stream above for why).
 
 - **Axum Routers** organize endpoints into modules (`users`, `devices`, `readings`); `readings` nests under the same `/api/v1/devices` prefix as `devices` since a reading always belongs to a device.
 - **AppState** holds the shared Postgres connection pool used by every handler.
@@ -299,6 +320,7 @@ IoT Hub applies rate limiting via [`tower_governor`](https://docs.rs/tower_gover
 - A limit of **100 concurrent in-flight requests** per group
 - Each group has its own independent budget, so a hot endpoint in one group can't starve unrelated groups
 - Keyed by the authenticated caller (the JWT's `sub` claim), not just client IP — two users behind the same IP/proxy get independent budgets. Requests with no valid token (signup, login, health, or any request that's simply missing/invalid) fall back to peer-IP keying.
+- The reading-stream WebSocket is not part of either group — a long-lived connection would otherwise hold a concurrency-limit slot for its whole lifetime, not just per-request. This is an accepted, unbounded gap for a demo project.
 
 ## Observability
 

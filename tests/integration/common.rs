@@ -9,7 +9,9 @@ use iot_hub::domain::ids::{DeviceId, UserId};
 use serde::Serialize;
 use serde_json::Value;
 use sqlx::{self, Executor, PgPool};
+use std::net::SocketAddr;
 use std::str::FromStr;
+use tokio::net::TcpListener;
 use tower::ServiceExt;
 use utoipa_axum::router::OpenApiRouter;
 
@@ -60,7 +62,11 @@ pub async fn setup_test_state(table: &str) -> AppState {
 
     seed_default_mock_user(&pool).await;
 
-    AppState { db_pool: pool }
+    let (readings_tx, _rx) = tokio::sync::broadcast::channel(256);
+    AppState {
+        db_pool: pool,
+        readings_tx,
+    }
 }
 
 /// The mock-auth extractor's fallback identity (used whenever a test doesn't
@@ -93,6 +99,29 @@ pub async fn seed_device(pool: &PgPool, device_id: DeviceId, owner_id: UserId) {
     .execute(pool)
     .await
     .expect("failed to seed device fixture");
+}
+
+/// The WS route only exists on the full `iot_hub::create_app` router (like
+/// `/metrics`), not on any `OpenApiRouter` sub-router `TestApp` wraps -- and
+/// a WS upgrade needs a real socket, unlike `oneshot`'s in-memory request/response.
+///
+/// Serves with connect-info enabled: `create_app`'s rate-limiting layer keys
+/// on peer IP when there's no auth header, which needs a real `ConnectInfo`
+/// extension -- absent by default over a plain TCP listener.
+pub async fn spawn_test_server(app: Router) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("failed to bind test server");
+    let addr = listener.local_addr().expect("failed to get local addr");
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .expect("test server failed");
+    });
+    addr
 }
 
 pub async fn send_request<T: Serialize>(

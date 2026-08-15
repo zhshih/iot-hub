@@ -17,7 +17,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home --uid 10001 iot-hub
 
+WORKDIR /app
 COPY --from=builder /app/target/release/iot-hub /usr/local/bin/iot-hub
+COPY static ./static
 
 USER iot-hub
 EXPOSE 3000

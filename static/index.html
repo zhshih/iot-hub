@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>iot-hub live readings</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
+    form { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
+    input { padding: 0.4rem; font-family: monospace; }
+    input[name="token"] { flex: 1 1 300px; }
+    input[name="device_id"] { flex: 1 1 260px; }
+    button { padding: 0.4rem 1rem; }
+    #status { font-weight: bold; }
+    #status.connected { color: #1a7f37; }
+    #status.disconnected { color: #b3261e; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; font-variant-numeric: tabular-nums; }
+    th { background: #f5f5f5; }
+  </style>
+</head>
+<body>
+  <h1>iot-hub &mdash; live readings</h1>
+  <p>Requires a Bearer JWT (from <code>POST /api/v1/users/login</code>) and a device id you own.</p>
+
+  <form id="connect-form">
+    <input name="token" type="text" placeholder="JWT token" required />
+    <input name="device_id" type="text" placeholder="device id (uuid)" required />
+    <button type="submit">Connect</button>
+    <button type="button" id="disconnect-btn" disabled>Disconnect</button>
+    <span id="status" class="disconnected">disconnected</span>
+  </form>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Value</th><th>Arrived</th><th>Processed</th></tr>
+    </thead>
+    <tbody id="readings-body"></tbody>
+  </table>
+
+  <script src="dashboard.js"></script>
+</body>
+</html>
