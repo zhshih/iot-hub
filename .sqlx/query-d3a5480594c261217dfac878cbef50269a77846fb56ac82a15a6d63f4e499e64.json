@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id, name, description, owner_id, registered_at, is_active\n            FROM devices\n            WHERE owner_id = $1\n            ORDER BY registered_at DESC\n            ",
+  "query": "\n                SELECT id, name, description, owner_id, registered_at, is_active\n                FROM devices\n                ORDER BY registered_at DESC\n                ",
   "describe": {
     "columns": [
       {
@@ -35,9 +35,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Uuid"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -48,5 +46,5 @@
       false
     ]
   },
-  "hash": "c484c71ca018c77ccd6e96a12757ea3a54d394394251d1ed49bbff6a9caa95ab"
+  "hash": "d3a5480594c261217dfac878cbef50269a77846fb56ac82a15a6d63f4e499e64"
 }

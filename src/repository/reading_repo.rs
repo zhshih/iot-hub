@@ -2,6 +2,7 @@ use crate::{
     domain::ids::DeviceId,
     domain::reading::{Reading, ReadingType},
     error::AppError,
+    repository::retry,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -92,26 +93,28 @@ impl ReadingRepository for PgPool {
     ) -> Result<PaginatedResult<Reading>, AppError> {
         let limit = limit.unwrap_or(100);
 
-        let mut qb = QueryBuilder::new("SELECT * FROM readings WHERE device_id = ");
-        qb.push_bind(device_id);
+        let rows: Vec<Reading> = retry::read("get_readings_filtered_paginated", || async {
+            let mut qb = QueryBuilder::new("SELECT * FROM readings WHERE device_id = ");
+            qb.push_bind(device_id);
 
-        if let Some(from) = from {
-            qb.push(" AND arrived_timestamp >= ").push_bind(from);
-        }
+            if let Some(from) = from {
+                qb.push(" AND arrived_timestamp >= ").push_bind(from);
+            }
 
-        if let Some(to) = to {
-            qb.push(" AND arrived_timestamp <= ").push_bind(to);
-        }
+            if let Some(to) = to {
+                qb.push(" AND arrived_timestamp <= ").push_bind(to);
+            }
 
-        if let Some(cursor) = cursor {
-            qb.push(" AND arrived_timestamp < ").push_bind(cursor);
-        }
+            if let Some(cursor) = cursor {
+                qb.push(" AND arrived_timestamp < ").push_bind(cursor);
+            }
 
-        qb.push(" ORDER BY arrived_timestamp DESC ");
-        qb.push(" LIMIT ").push_bind(limit as i64 + 1);
-        let query = qb.build_query_as::<Reading>();
-
-        let rows: Vec<Reading> = query.fetch_all(&*self).await.map_err(|e| {
+            qb.push(" ORDER BY arrived_timestamp DESC ");
+            qb.push(" LIMIT ").push_bind(limit as i64 + 1);
+            qb.build_query_as::<Reading>().fetch_all(&*self).await
+        })
+        .await
+        .map_err(|e| {
             AppError::DatabaseError(format!("Failed to fetch paginated readings: {}", e))
         })?;
 

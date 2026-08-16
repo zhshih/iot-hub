@@ -39,6 +39,7 @@ axum-prometheus = "0.9.0"
 utoipa = { version = "5.5.0", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-axum = "0.2.0"
 utoipa-swagger-ui = { version = "9.0.2", features = ["axum", "vendored"] }
+tokio-retry2 = { version = "0.9", features = ["jitter"] }
 
 [dev-dependencies]
 tower = "0.5.2"

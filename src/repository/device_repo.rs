@@ -2,6 +2,7 @@ use crate::{
     domain::device::Device,
     domain::ids::{DeviceId, UserId},
     error::AppError,
+    repository::retry,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -50,16 +51,19 @@ impl DeviceRepository for PgPool {
     }
 
     async fn find_device_by_id(&self, id: DeviceId) -> Result<Option<Device>, AppError> {
-        let device = sqlx::query_as!(
-            Device,
-            r#"
-            SELECT id, name, description, owner_id, registered_at, is_active
-            FROM devices
-            WHERE id = $1
-            "#,
-            Uuid::from(id)
-        )
-        .fetch_optional(self)
+        let device = retry::read("find_device_by_id", || async {
+            sqlx::query_as!(
+                Device,
+                r#"
+                SELECT id, name, description, owner_id, registered_at, is_active
+                FROM devices
+                WHERE id = $1
+                "#,
+                Uuid::from(id)
+            )
+            .fetch_optional(self)
+            .await
+        })
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to fetch device: {}", e)))?;
 
@@ -67,15 +71,18 @@ impl DeviceRepository for PgPool {
     }
 
     async fn list_all_device(&self) -> Result<Vec<Device>, AppError> {
-        let devices = sqlx::query_as!(
-            Device,
-            r#"
-            SELECT id, name, description, owner_id, registered_at, is_active
-            FROM devices
-            ORDER BY registered_at DESC
-            "#
-        )
-        .fetch_all(self)
+        let devices = retry::read("list_all_device", || async {
+            sqlx::query_as!(
+                Device,
+                r#"
+                SELECT id, name, description, owner_id, registered_at, is_active
+                FROM devices
+                ORDER BY registered_at DESC
+                "#
+            )
+            .fetch_all(self)
+            .await
+        })
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to fetch devices: {}", e)))?;
 
@@ -83,17 +90,20 @@ impl DeviceRepository for PgPool {
     }
 
     async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError> {
-        let devices = sqlx::query_as!(
-            Device,
-            r#"
-            SELECT id, name, description, owner_id, registered_at, is_active
-            FROM devices
-            WHERE owner_id = $1
-            ORDER BY registered_at DESC
-            "#,
-            Uuid::from(owner_id)
-        )
-        .fetch_all(self)
+        let devices = retry::read("list_devices_by_owner", || async {
+            sqlx::query_as!(
+                Device,
+                r#"
+                SELECT id, name, description, owner_id, registered_at, is_active
+                FROM devices
+                WHERE owner_id = $1
+                ORDER BY registered_at DESC
+                "#,
+                Uuid::from(owner_id)
+            )
+            .fetch_all(self)
+            .await
+        })
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to fetch devices: {}", e)))?;
 
