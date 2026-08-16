@@ -2,6 +2,7 @@ use crate::{
     domain::ids::UserId,
     domain::user::{User, UserRole},
     error::AppError,
+    repository::retry,
 };
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -44,48 +45,60 @@ impl UserRepository for PgPool {
     }
 
     async fn find_user_by_username(&self, username: &str) -> Result<Option<User>, AppError> {
-        sqlx::query_as!(
-            User,
-            r#"
-            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
-            FROM users
-            WHERE username = $1
-            "#,
-            username
-        )
-        .fetch_optional(self)
+        retry::read("find_user_by_username", || async {
+            sqlx::query_as!(
+                User,
+                r#"
+                SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+                FROM users
+                WHERE username = $1
+                "#,
+                username
+            )
+            .fetch_optional(self)
+            .await
+        })
         .await
-        .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", username)))
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch user {}: {}", username, e)))
     }
 
     async fn find_user_by_id(&self, id: UserId) -> Result<Option<User>, AppError> {
-        sqlx::query_as!(
-            User,
-            r#"
-            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
-            FROM users
-            WHERE id = $1
-            "#,
-            Uuid::from(id)
-        )
-        .fetch_optional(self)
+        retry::read("find_user_by_id", || async {
+            sqlx::query_as!(
+                User,
+                r#"
+                SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+                FROM users
+                WHERE id = $1
+                "#,
+                Uuid::from(id)
+            )
+            .fetch_optional(self)
+            .await
+        })
         .await
-        .map_err(|_| AppError::DatabaseError(format!("Failed to fetch user: {}", id)))
+        .map_err(|e| AppError::DatabaseError(format!("Failed to fetch user {}: {}", id, e)))
     }
 
     async fn list_all_users(&self) -> Result<Vec<User>, AppError> {
-        sqlx::query_as!(
-            User,
-            r#"
-            SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
-            FROM users
-            "#
-        )
-        .fetch_all(self)
+        retry::read("list_all_users", || async {
+            sqlx::query_as!(
+                User,
+                r#"
+                SELECT id, username, email, hashed_password, role as "role: UserRole", created_at
+                FROM users
+                "#
+            )
+            .fetch_all(self)
+            .await
+        })
         .await
         .map_err(|e| AppError::DatabaseError(format!("Failed to fetch users: {}", e)))
     }
 
+    // Deliberately not wrapped in retry::read -- this backs the /health
+    // liveness endpoint; retrying would delay/mask a real outage instead of
+    // surfacing it to whatever is polling it.
     async fn health_check(&self) -> Result<bool, AppError> {
         let row: (i32,) = sqlx::query_as("SELECT 1")
             .fetch_one(self)
