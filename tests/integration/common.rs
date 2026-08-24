@@ -86,6 +86,24 @@ async fn seed_default_mock_user(pool: &PgPool) {
     .expect("failed to seed default mock user fixture");
 }
 
+/// Inserts a user row directly, bypassing signup. Needed by tests that
+/// transfer a device to a second owner, since ownership_history's
+/// new_owner_id foreign key requires a real users row. username/email are
+/// derived from user_id since both columns are UNIQUE.
+pub async fn seed_user(pool: &PgPool, user_id: UserId) {
+    sqlx::query(
+        "INSERT INTO users (id, username, email, hashed_password, role, created_at)
+         VALUES ($1, $2, $3, 'not-a-real-hash', 'Operator', NOW())
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(format!("seeded-user-{}", user_id))
+    .bind(format!("seeded-user-{}@example.com", user_id))
+    .execute(pool)
+    .await
+    .expect("failed to seed user fixture");
+}
+
 /// Inserts a device row directly, bypassing the API. Needed by tests that
 /// exercise readings endpoints, which now require the device to exist and
 /// be owned by the caller before accepting/returning any readings for it.

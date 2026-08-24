@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE devices\n            SET owner_id = $1\n            WHERE id = $2 AND owner_id = $3\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bfbf1a4a35a3dc07131e14389ed5f9601f30c2ceda8a7918aa119d57e9ff7412"
+}
