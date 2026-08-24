@@ -88,6 +88,35 @@ impl<R: DeviceRepository> DeviceService<R> {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Device with id {} not found", id)))
     }
+
+    pub async fn transfer_ownership(
+        &self,
+        id: DeviceId,
+        requester_id: UserId,
+        new_owner_id: UserId,
+    ) -> Result<(), AppError> {
+        if new_owner_id == requester_id {
+            return Err(AppError::MissingArgument(
+                "Cannot transfer a device to its current owner".to_string(),
+            ));
+        }
+
+        // No UserRepository existence check for new_owner_id: the FK on
+        // ownership_history.new_owner_id enforces it inside the same
+        // transaction, instead of a separate lookup that could race.
+        let affected = self
+            .repo
+            .transfer_ownership(id, requester_id, new_owner_id)
+            .await?;
+        if affected == 0 {
+            return Err(AppError::NotFound(format!(
+                "Device with id {} not found",
+                id
+            )));
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -109,6 +138,7 @@ mod tests {
             async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
             async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
             async fn update_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId, name: Option<String>, description: Option<String>, is_active: Option<bool>) -> Result<Option<Device>, AppError>;
+            async fn transfer_ownership(&self, device_id: DeviceId, previous_owner_id: UserId, new_owner_id: UserId) -> Result<u64, AppError>;
         }
     }
 
@@ -333,6 +363,54 @@ mod tests {
                 None,
                 None,
             )
+            .await;
+
+        assert!(matches!(result, Err(AppError::MissingArgument(_))));
+    }
+
+    #[tokio::test]
+    async fn test_transfer_ownership_success() {
+        let mut mock_repo = MockDeviceRepository::new();
+        mock_repo
+            .expect_transfer_ownership()
+            .returning(|_, _, _| Ok(1));
+
+        let service = DeviceService::new(mock_repo);
+        let result = service
+            .transfer_ownership(DeviceId::new(), UserId::new(), UserId::new())
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_transfer_ownership_not_found() {
+        let mut mock_repo = MockDeviceRepository::new();
+        mock_repo
+            .expect_transfer_ownership()
+            .returning(|_, _, _| Ok(0));
+
+        let service = DeviceService::new(mock_repo);
+        let result = service
+            .transfer_ownership(DeviceId::new(), UserId::new(), UserId::new())
+            .await;
+
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("Device with id"));
+            }
+            _ => panic!("Expected AppError::NotFound, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transfer_ownership_self_transfer_rejected() {
+        let mock_repo = MockDeviceRepository::new();
+        let service = DeviceService::new(mock_repo);
+
+        let same_user = UserId::new();
+        let result = service
+            .transfer_ownership(DeviceId::new(), same_user, same_user)
             .await;
 
         assert!(matches!(result, Err(AppError::MissingArgument(_))));

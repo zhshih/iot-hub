@@ -26,6 +26,12 @@ pub trait DeviceRepository: Send + Sync {
         description: Option<String>,
         is_active: Option<bool>,
     ) -> Result<Option<Device>, AppError>;
+    async fn transfer_ownership(
+        &self,
+        device_id: DeviceId,
+        previous_owner_id: UserId,
+        new_owner_id: UserId,
+    ) -> Result<u64, AppError>;
 }
 
 #[async_trait::async_trait]
@@ -161,6 +167,57 @@ impl DeviceRepository for PgPool {
 
         Ok(device)
     }
+
+    async fn transfer_ownership(
+        &self,
+        device_id: DeviceId,
+        previous_owner_id: UserId,
+        new_owner_id: UserId,
+    ) -> Result<u64, AppError> {
+        let mut tx = self
+            .begin()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to begin transaction: {}", e)))?;
+
+        let result = sqlx::query!(
+            r#"
+            UPDATE devices
+            SET owner_id = $1
+            WHERE id = $2 AND owner_id = $3
+            "#,
+            Uuid::from(new_owner_id),
+            Uuid::from(device_id),
+            Uuid::from(previous_owner_id),
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| AppError::DatabaseError(format!("Failed to update device owner: {}", e)))?;
+
+        if result.rows_affected() == 0 {
+            return Ok(0);
+        }
+
+        sqlx::query!(
+            r#"
+            INSERT INTO ownership_history (device_id, previous_owner_id, new_owner_id)
+            VALUES ($1, $2, $3)
+            "#,
+            Uuid::from(device_id),
+            Uuid::from(previous_owner_id),
+            Uuid::from(new_owner_id),
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            AppError::DatabaseError(format!("Failed to insert ownership history: {}", e))
+        })?;
+
+        tx.commit()
+            .await
+            .map_err(|e| AppError::DatabaseError(format!("Failed to commit transaction: {}", e)))?;
+
+        Ok(1)
+    }
 }
 
 #[cfg(test)]
@@ -182,6 +239,7 @@ mod tests {
             async fn list_devices_by_owner(&self, owner_id: UserId) -> Result<Vec<Device>, AppError>;
             async fn delete_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId) -> Result<u64, AppError>;
             async fn update_device_by_id_and_owner(&self, id: DeviceId, owner_id: UserId, name: Option<String>, description: Option<String>, is_active: Option<bool>) -> Result<Option<Device>, AppError>;
+            async fn transfer_ownership(&self, device_id: DeviceId, previous_owner_id: UserId, new_owner_id: UserId) -> Result<u64, AppError>;
         }
     }
 
@@ -300,6 +358,21 @@ mod tests {
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().unwrap().name, "Updated Name");
+    }
+
+    #[tokio::test]
+    async fn test_transfer_ownership_success() {
+        let mut mock_repo = MockDeviceRepository::new();
+
+        mock_repo
+            .expect_transfer_ownership()
+            .returning(|_, _, _| Ok(1));
+
+        let result = mock_repo
+            .transfer_ownership(DeviceId::new(), UserId::new(), UserId::new())
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 1);
     }
 
     #[tokio::test]

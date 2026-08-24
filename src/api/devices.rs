@@ -3,10 +3,10 @@ use crate::{
     app_state::AppState,
     auth::extractor::AuthUser,
     domain::device::RegisteredDevice,
-    domain::ids::DeviceId,
+    domain::ids::{DeviceId, UserId},
     dto::device::{
         DeleteDeviceResponse, GetDeviceResponse, GetDevicesResponse, RegisterDeviceRequest,
-        RegisterDeviceResponse, UpdateDeviceRequest,
+        RegisterDeviceResponse, TransferDeviceRequest, TransferDeviceResponse, UpdateDeviceRequest,
     },
     service::device_service::DeviceService,
 };
@@ -20,6 +20,7 @@ pub fn routes() -> OpenApiRouter<AppState> {
     OpenApiRouter::new()
         .routes(routes!(register_device, get_devices))
         .routes(routes!(get_device, delete_device, update_device))
+        .routes(routes!(transfer_device))
 }
 
 #[utoipa::path(
@@ -148,4 +149,34 @@ pub(crate) async fn update_device(
         .await?;
 
     Ok(Json(ApiResponse::success(GetDeviceResponse { device })))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/{device_id}/transfer",
+    params(("device_id" = DeviceId, Path, description = "Device id")),
+    request_body = TransferDeviceRequest,
+    responses(
+        (status = 200, description = "Ownership transferred", body = ApiResponse<TransferDeviceResponse>),
+        (status = 400, description = "Cannot transfer to the current owner"),
+        (status = 404, description = "Not found, or not owned by the caller"),
+    ),
+    description = "Requires a Bearer JWT. A device you don't own returns 404, not 403.",
+    tag = "devices",
+)]
+pub(crate) async fn transfer_device(
+    AuthUser(claims): AuthUser,
+    State(state): State<AppState>,
+    Path(id): Path<DeviceId>,
+    Json(payload): Json<TransferDeviceRequest>,
+) -> HandlerResult<TransferDeviceResponse> {
+    let requester_id = claims.user_id()?;
+    let service = DeviceService::new(state.db_pool.clone());
+    service
+        .transfer_ownership(id, requester_id, UserId::from(payload.new_owner_id))
+        .await?;
+
+    Ok(Json(ApiResponse::success(TransferDeviceResponse {
+        device_id: id.to_string(),
+    })))
 }
